@@ -5,7 +5,7 @@ go 1.24.2
 require (
 	github.com/hajimehoshi/ebiten/v2 v2.8.8
 	github.com/spf13/afero v1.14.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0
 )
 
