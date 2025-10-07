@@ -34,9 +34,6 @@ var spritePositions = map[string]image.Point{
 
 // Init initializes the game state
 func (g *Game) Init() {
-	// Enable smooth sub-pixel positioning for smoother diagonal movement
-	p8.SetPixelPerfectRendering(false)
-
 	// Initialize player at center with default sprite
 	g.pos = p8.NewVector2D(60, 60)
 	g.speed = 1

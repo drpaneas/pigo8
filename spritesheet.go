@@ -1,9 +1,9 @@
 package pigo8
 
 import (
-	"crypto/md5"
-	"encoding/json" // Keep color import
+	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"os"
 	"path/filepath"
@@ -31,6 +31,54 @@ type spriteData struct { // Internal
 	Pixels [][]int   `json:"pixels"`
 	Flags  FlagsData `json:"flags"` // Uses exported FlagsData
 	Used   bool      `json:"used"`
+}
+
+// Validate validates the sprite data for consistency and correctness
+func (s *spriteData) Validate() error {
+	// Validate dimensions
+	if s.Width <= 0 || s.Height <= 0 {
+		return fmt.Errorf("sprite %d has invalid dimensions: %dx%d (must be positive)", s.ID, s.Width, s.Height)
+	}
+
+	// Validate ID is non-negative
+	if s.ID < 0 {
+		return fmt.Errorf("sprite has invalid negative ID: %d", s.ID)
+	}
+
+	// Validate position is non-negative
+	if s.X < 0 || s.Y < 0 {
+		return fmt.Errorf("sprite %d has invalid negative position: (%d, %d)", s.ID, s.X, s.Y)
+	}
+
+	// Validate pixel data dimensions match declared dimensions
+	if len(s.Pixels) != s.Height {
+		return fmt.Errorf("sprite %d pixel data height mismatch: expected %d rows, got %d", s.ID, s.Height, len(s.Pixels))
+	}
+
+	for i, row := range s.Pixels {
+		if len(row) != s.Width {
+			return fmt.Errorf("sprite %d pixel data width mismatch at row %d: expected %d pixels, got %d", s.ID, i, s.Width, len(row))
+		}
+
+		// Validate color indices are within reasonable range (0-255 for extended palettes)
+		for j, colorIndex := range row {
+			if colorIndex < 0 || colorIndex > 255 {
+				return fmt.Errorf("sprite %d has invalid color index %d at position (%d, %d): must be 0-255", s.ID, colorIndex, j, i)
+			}
+		}
+	}
+
+	// Validate flags bitfield is within reasonable range (8 bits = 0-255)
+	if s.Flags.Bitfield < 0 || s.Flags.Bitfield > 255 {
+		return fmt.Errorf("sprite %d has invalid flags bitfield %d: must be 0-255", s.ID, s.Flags.Bitfield)
+	}
+
+	// Validate individual flags array length
+	if len(s.Flags.Individual) != 8 {
+		return fmt.Errorf("sprite %d has invalid flags individual array length %d: must be 8", s.ID, len(s.Flags.Individual))
+	}
+
+	return nil
 }
 
 // spriteSheet holds the overall structure of the JSON file.
@@ -195,7 +243,7 @@ func createSpriteInfo(spriteData spriteData, updatePixelCache bool) (spriteInfo,
 					pixels[offset+3] = uint8(a >> 8) // Alpha
 				}
 			} else {
-				log.Printf("Warning: Sprite %d has out-of-range color index %d at (%d, %d)", spriteData.ID, colorIndex, x, y)
+				log.Printf("Warning: Sprite %d has out-of-range color index %d at (%d, %d) - using transparent pixel", spriteData.ID, colorIndex, x, y)
 			}
 		}
 	}
@@ -252,6 +300,15 @@ func processSprites(sheet *spriteSheet, updatePixelCache bool) ([]spriteInfo, er
 			continue // Skip unused sprites
 		}
 
+		// Validate sprite data
+		if err := spriteData.Validate(); err != nil {
+			if isStrictValidationEnabled() {
+				return nil, fmt.Errorf("strict validation failed for sprite %d: %w", spriteData.ID, err)
+			}
+			log.Printf("Warning: Skipping invalid sprite: %v", err)
+			continue
+		}
+
 		// Handle empty sprites
 		if isEmptySprite(spriteData) {
 			localSpriteIDMapping[spriteData.ID] = 0
@@ -259,8 +316,8 @@ func processSprites(sheet *spriteSheet, updatePixelCache bool) ([]spriteInfo, er
 			continue
 		}
 
-		// Handle duplicate detection for sprites without flags
-		if spriteData.Flags.Bitfield == 0 {
+		// Handle duplicate detection for sprites without flags (only if optimization is enabled)
+		if isOptimizationEnabled() && spriteData.Flags.Bitfield == 0 {
 			if existingIndex, found := checkForDuplicate(spriteData, spriteHashes); found {
 				localSpriteIDMapping[spriteData.ID] = existingIndex
 				duplicatesMapped++
@@ -274,7 +331,7 @@ func processSprites(sheet *spriteSheet, updatePixelCache bool) ([]spriteInfo, er
 		// Load unique sprite
 		info, err := createSpriteInfo(spriteData, updatePixelCache)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create sprite %d: %w", spriteData.ID, err)
 		}
 
 		loadedSprites = append(loadedSprites, info)
@@ -445,10 +502,11 @@ func isSpriteEmpty(sprite spriteData) bool {
 	return true
 }
 
-// generateOptimizedSpriteHash creates a hash of sprite pixel data and flags using efficient byte operations
+// generateOptimizedSpriteHash creates a hash of sprite pixel data and flags for deduplication
+// Uses FNV-1a hash for fast, efficient sprite comparison during loading
 func generateOptimizedSpriteHash(pixels [][]int, flags FlagsData) string {
-	// Use a more efficient approach than string concatenation
-	hasher := md5.New()
+	// Use FNV-1a hash for fast sprite deduplication
+	hasher := fnv.New64a()
 
 	// Write pixel data directly as bytes to avoid string allocation
 	for _, row := range pixels {
@@ -471,7 +529,7 @@ func generateOptimizedSpriteHash(pixels [][]int, flags FlagsData) string {
 	flagBytes[3] = byte(flags.Bitfield >> 24)
 	hasher.Write(flagBytes)
 
-	return fmt.Sprintf("%x", hasher.Sum(nil))
+	return fmt.Sprintf("%x", hasher.Sum64())
 }
 
 // createTransparentSprite creates a transparent sprite with ID 0

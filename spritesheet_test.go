@@ -155,6 +155,7 @@ func TestLoadSpritesheetFromData_UsedWithInvalidColorIndex(t *testing.T) {
 		"sprites": [
 			{
 				"id": 0, "x": 0, "y": 0, "width": 1, "height": 1, "used": true,
+				"flags": {"bitfield": 0, "individual": [false,false,false,false,false,false,false,false]},
 				"pixels": [[99]]
 			}
 		]
@@ -175,6 +176,143 @@ func TestLoadSpritesheetFromData_UsedWithInvalidColorIndex(t *testing.T) {
 
 // Note: Capturing log output requires more setup, often involving redirecting
 // log.SetOutput() during the test and restoring it afterwards. Skipping for brevity initially.
+
+func TestGenerateOptimizedSpriteHash(t *testing.T) {
+	// Test basic hash generation
+	pixels1 := [][]int{{1, 2}, {3, 4}}
+	flags1 := FlagsData{Bitfield: 0, Individual: []bool{false, false, false, false, false, false, false, false}}
+
+	hash1 := generateOptimizedSpriteHash(pixels1, flags1)
+	assert.NotEmpty(t, hash1, "Hash should not be empty")
+
+	// Test hash consistency - same input should produce same hash
+	hash1_repeat := generateOptimizedSpriteHash(pixels1, flags1)
+	assert.Equal(t, hash1, hash1_repeat, "Same input should produce same hash")
+
+	// Test hash uniqueness - different pixels should produce different hashes
+	pixels2 := [][]int{{1, 2}, {3, 5}} // Changed last value
+	hash2 := generateOptimizedSpriteHash(pixels2, flags1)
+	assert.NotEqual(t, hash1, hash2, "Different pixels should produce different hashes")
+
+	// Test hash uniqueness - different flags should produce different hashes
+	flags2 := FlagsData{Bitfield: 1, Individual: []bool{false, false, false, false, false, false, false, false}}
+	hash3 := generateOptimizedSpriteHash(pixels1, flags2)
+	assert.NotEqual(t, hash1, hash3, "Different flags should produce different hashes")
+
+	// Test with empty pixels
+	emptyPixels := [][]int{}
+	hashEmpty := generateOptimizedSpriteHash(emptyPixels, flags1)
+	assert.NotEmpty(t, hashEmpty, "Hash of empty pixels should not be empty")
+	assert.NotEqual(t, hash1, hashEmpty, "Empty pixels should produce different hash")
+}
+
+func TestGenerateOptimizedSpriteHashCollisions(t *testing.T) {
+	// Test for hash collisions with a reasonable set of sprite variations
+	hashes := make(map[string]bool)
+	collisions := 0
+	totalHashes := 0
+
+	// Generate hashes for various sprite patterns
+	for bitfield := 0; bitfield < 4; bitfield++ { // Test a few bitfield values
+		for pattern := 0; pattern < 16; pattern++ { // Test different pixel patterns
+			pixels := make([][]int, 8)
+			for i := range pixels {
+				pixels[i] = make([]int, 8)
+				for j := range pixels[i] {
+					// Create different patterns based on pattern value
+					pixels[i][j] = (pattern + i + j) % 16
+				}
+			}
+
+			flags := FlagsData{
+				Bitfield:   bitfield,
+				Individual: []bool{false, false, false, false, false, false, false, false},
+			}
+
+			hash := generateOptimizedSpriteHash(pixels, flags)
+			totalHashes++
+
+			if hashes[hash] {
+				collisions++
+			} else {
+				hashes[hash] = true
+			}
+		}
+	}
+
+	// We should have very few or no collisions for this small test set
+	collisionRate := float64(collisions) / float64(totalHashes)
+	assert.Less(t, collisionRate, 0.1, "Collision rate should be less than 10%% for test data set")
+
+	t.Logf("Hash collision test: %d collisions out of %d hashes (%.2f%% collision rate)",
+		collisions, totalHashes, collisionRate*100)
+}
+
+func TestRenderConfigAPI(t *testing.T) {
+	// Test default configuration
+	defaultConfig := GetRenderConfig()
+	assert.False(t, defaultConfig.DebugSprites, "Debug sprites should be disabled by default")
+	assert.True(t, defaultConfig.OptimizeSprites, "Sprite optimization should be enabled by default")
+	assert.False(t, defaultConfig.StrictValidation, "Strict validation should be disabled by default")
+
+	// Test setting individual options
+	SetDebugSpriteLogging(true)
+	SetOptimizeSprites(false)
+	SetStrictValidation(true)
+
+	config := GetRenderConfig()
+	assert.True(t, config.DebugSprites, "Debug sprites should be enabled after SetDebugSpriteLogging(true)")
+	assert.False(t, config.OptimizeSprites, "Sprite optimization should be disabled after SetOptimizeSprites(false)")
+	assert.True(t, config.StrictValidation, "Strict validation should be enabled after SetStrictValidation(true)")
+
+	// Test SetRenderConfig
+	newConfig := RenderConfig{
+		DebugSprites:     false,
+		OptimizeSprites:  true,
+		StrictValidation: false,
+	}
+	SetRenderConfig(newConfig)
+
+	resultConfig := GetRenderConfig()
+	assert.Equal(t, newConfig.DebugSprites, resultConfig.DebugSprites, "SetRenderConfig should set DebugSprites")
+	assert.Equal(t, newConfig.OptimizeSprites, resultConfig.OptimizeSprites, "SetRenderConfig should set OptimizeSprites")
+	assert.Equal(t, newConfig.StrictValidation, resultConfig.StrictValidation, "SetRenderConfig should set StrictValidation")
+
+	// Reset to defaults for other tests
+	SetDebugSpriteLogging(false)
+	SetOptimizeSprites(true)
+	SetStrictValidation(false)
+}
+
+func TestStrictValidationBehavior(t *testing.T) {
+	// Test lenient validation (default) - invalid sprite should be skipped
+	SetStrictValidation(false)
+
+	jsonData := []byte(`{
+		"sprites": [
+			{
+				"id": 0, "x": 0, "y": 0, "width": 8, "height": 8, "used": true,
+				"flags": {"bitfield": 0, "individual": []},
+				"pixels": [[0]]
+			}
+		]
+	}`)
+
+	sprites, err := loadSpritesheetFromDataForTest(jsonData)
+	assert.NoError(t, err, "Lenient validation should not return error for invalid sprite")
+	assert.Len(t, sprites, 0, "Invalid sprite should be skipped in lenient mode")
+
+	// Test strict validation - invalid sprite should cause error
+	SetStrictValidation(true)
+
+	sprites, err = loadSpritesheetFromDataForTest(jsonData)
+	assert.Error(t, err, "Strict validation should return error for invalid sprite")
+	assert.Nil(t, sprites, "Sprites should be nil when strict validation fails")
+	assert.Contains(t, err.Error(), "strict validation failed", "Error should mention strict validation")
+
+	// Reset to default
+	SetStrictValidation(false)
+}
 
 // --- Tests for loadSpritesheet (Filesystem Interaction) ---
 

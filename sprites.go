@@ -31,28 +31,137 @@ var (
 	spriteCacheValid      = make(map[int]bool)   // spriteID -> cache validity
 	spritePixelCacheMutex sync.RWMutex
 
-	// Sub-pixel positioning control
-	// When true, sprite coordinates are rounded to integers for pixel-perfect rendering
-	// When false, allows smooth sub-pixel positioning for smoother movement
-	pixelPerfectRendering = true
+	// Debug configuration
+	debugSpriteLogging = false
+	debugMutex         sync.RWMutex
+
+	// Sprite optimization configuration
+	optimizeSprites = true
+	optimizeMutex   sync.RWMutex
+
+	// Sprite validation configuration
+	strictValidation = false
+	validationMutex  sync.RWMutex
 )
 
-// SetPixelPerfectRendering controls whether sprite coordinates are rounded to integers.
-// When enabled (true), sprites are drawn at exact pixel boundaries for crisp, pixel-perfect rendering.
-// When disabled (false), sprites can be positioned at sub-pixel coordinates for smoother movement.
+// RenderConfig holds rendering configuration options
+type RenderConfig struct {
+	DebugSprites     bool // Enable debug logging for sprite operations (default: false)
+	OptimizeSprites  bool // Enable sprite optimization during loading (default: true)
+	StrictValidation bool // Enable strict sprite validation - fail on invalid sprites (default: false)
+}
+
+// SetDebugSpriteLogging controls whether debug information is logged for sprite operations.
+// This is useful for debugging sprite lookup issues and performance analysis.
+//
+// This function is thread-safe.
 //
 // Parameters:
-//   - enabled: true for pixel-perfect rendering (default), false for sub-pixel positioning
+//   - enabled: true to enable debug logging, false to disable (default)
 //
 // Example:
 //
-//	// Enable smooth sub-pixel movement (good for smooth diagonal movement)
-//	p8.SetPixelPerfectRendering(false)
+//	// Enable debug logging
+//	p8.SetDebugSpriteLogging(true)
+func SetDebugSpriteLogging(enabled bool) {
+	debugMutex.Lock()
+	defer debugMutex.Unlock()
+	debugSpriteLogging = enabled
+}
+
+// SetOptimizeSprites controls whether sprite optimization (deduplication) is enabled during loading.
+// When enabled, duplicate sprites are detected and mapped to reduce memory usage.
 //
-//	// Enable pixel-perfect rendering (good for crisp pixel art)
-//	p8.SetPixelPerfectRendering(true)
-func SetPixelPerfectRendering(enabled bool) {
-	pixelPerfectRendering = enabled
+// This function is thread-safe.
+//
+// Parameters:
+//   - enabled: true to enable sprite optimization (default), false to disable
+//
+// Example:
+//
+//	// Disable sprite optimization for debugging
+//	p8.SetOptimizeSprites(false)
+func SetOptimizeSprites(enabled bool) {
+	optimizeMutex.Lock()
+	defer optimizeMutex.Unlock()
+	optimizeSprites = enabled
+}
+
+// SetStrictValidation controls whether strict sprite validation is enabled.
+// When enabled, invalid sprites cause loading to fail with an error.
+// When disabled, invalid sprites are skipped with a warning (default behavior).
+//
+// This function is thread-safe.
+//
+// Parameters:
+//   - enabled: true to enable strict validation, false for lenient validation (default)
+//
+// Example:
+//
+//	// Enable strict validation for development
+//	p8.SetStrictValidation(true)
+func SetStrictValidation(enabled bool) {
+	validationMutex.Lock()
+	defer validationMutex.Unlock()
+	strictValidation = enabled
+}
+
+// SetRenderConfig applies a complete render configuration in a thread-safe manner.
+//
+// Parameters:
+//   - config: RenderConfig struct with desired settings
+//
+// Example:
+//
+//	config := p8.RenderConfig{
+//		DebugSprites:     true,
+//		OptimizeSprites:  true,
+//		StrictValidation: false,
+//	}
+//	p8.SetRenderConfig(config)
+func SetRenderConfig(config RenderConfig) {
+	SetDebugSpriteLogging(config.DebugSprites)
+	SetOptimizeSprites(config.OptimizeSprites)
+	SetStrictValidation(config.StrictValidation)
+}
+
+// GetRenderConfig returns the current render configuration in a thread-safe manner.
+func GetRenderConfig() RenderConfig {
+	debugMutex.RLock()
+	optimizeMutex.RLock()
+	validationMutex.RLock()
+	defer func() {
+		validationMutex.RUnlock()
+		optimizeMutex.RUnlock()
+		debugMutex.RUnlock()
+	}()
+
+	return RenderConfig{
+		DebugSprites:     debugSpriteLogging,
+		OptimizeSprites:  optimizeSprites,
+		StrictValidation: strictValidation,
+	}
+}
+
+// isDebugEnabled returns whether debug logging is enabled (thread-safe)
+func isDebugEnabled() bool {
+	debugMutex.RLock()
+	defer debugMutex.RUnlock()
+	return debugSpriteLogging
+}
+
+// isOptimizationEnabled returns whether sprite optimization is enabled (thread-safe)
+func isOptimizationEnabled() bool {
+	optimizeMutex.RLock()
+	defer optimizeMutex.RUnlock()
+	return optimizeSprites
+}
+
+// isStrictValidationEnabled returns whether strict validation is enabled (thread-safe)
+func isStrictValidationEnabled() bool {
+	validationMutex.RLock()
+	defer validationMutex.RUnlock()
+	return strictValidation
 }
 
 // Spr draws a potentially fractional rectangular region of sprites,
@@ -119,11 +228,6 @@ func Spr[SN Number, X Number, Y Number](spriteNumber SN, x X, y Y, options ...an
 
 	// Apply camera offset before using coordinates for drawing
 	screenFx, screenFy := applyCameraOffset(fx, fy)
-	// Optionally round destination coordinates for pixel-perfect rendering
-	if pixelPerfectRendering {
-		screenFx = math.Round(screenFx)
-		screenFy = math.Round(screenFy)
-	}
 
 	// Use internal package variables set by engine.Draw
 	if currentScreen == nil {
@@ -144,6 +248,9 @@ func Spr[SN Number, X Number, Y Number](spriteNumber SN, x X, y Y, options ...an
 	spriteInfo := findSpriteByID(spriteNumInt)
 	if spriteInfo == nil {
 		// No sprite found with this ID or at this index
+		if isDebugEnabled() {
+			log.Printf("Debug: Sprite %d not found in Spr()", spriteNumInt)
+		}
 		return
 	}
 
@@ -713,8 +820,10 @@ func Fget(spriteNum int, flag ...int) (bitfield int, isSet bool) {
 
 	// If sprite not found, return zero values (reduce log noise for frequent queries)
 	if spriteInfo == nil {
-		// Only log in debug mode or for strict validation - comment out to reduce noise
-		// log.Printf("Debug: Fget() called for non-existent sprite ID %d", spriteNum)
+		// Only log in debug mode to reduce noise
+		if isDebugEnabled() {
+			log.Printf("Debug: Fget() called for non-existent sprite ID %d", spriteNum)
+		}
 		return 0, false
 	}
 
@@ -973,11 +1082,6 @@ func Sspr[SX Number, SY Number, SW Number, SH Number, DX Number, DY Number](sx S
 	sourceHeight := int(sh) // Source height on spritesheet
 	destX := float64(dx)
 	destY := float64(dy)
-	// Optionally round destination coordinates for pixel-perfect rendering
-	if pixelPerfectRendering {
-		destX = math.Round(destX)
-		destY = math.Round(destY)
-	}
 
 	// Use internal package variables set by engine.Draw
 	if currentScreen == nil {
