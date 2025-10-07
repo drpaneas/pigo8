@@ -30,7 +30,30 @@ var (
 	spritePixelCacheSize  = make(map[int]int)    // spriteID -> width*height
 	spriteCacheValid      = make(map[int]bool)   // spriteID -> cache validity
 	spritePixelCacheMutex sync.RWMutex
+
+	// Sub-pixel positioning control
+	// When true, sprite coordinates are rounded to integers for pixel-perfect rendering
+	// When false, allows smooth sub-pixel positioning for smoother movement
+	pixelPerfectRendering = true
 )
+
+// SetPixelPerfectRendering controls whether sprite coordinates are rounded to integers.
+// When enabled (true), sprites are drawn at exact pixel boundaries for crisp, pixel-perfect rendering.
+// When disabled (false), sprites can be positioned at sub-pixel coordinates for smoother movement.
+//
+// Parameters:
+//   - enabled: true for pixel-perfect rendering (default), false for sub-pixel positioning
+//
+// Example:
+//
+//	// Enable smooth sub-pixel movement (good for smooth diagonal movement)
+//	p8.SetPixelPerfectRendering(false)
+//
+//	// Enable pixel-perfect rendering (good for crisp pixel art)
+//	p8.SetPixelPerfectRendering(true)
+func SetPixelPerfectRendering(enabled bool) {
+	pixelPerfectRendering = enabled
+}
 
 // Spr draws a potentially fractional rectangular region of sprites,
 // using the internal `currentScreen` and `currentSprites` variables.
@@ -96,9 +119,11 @@ func Spr[SN Number, X Number, Y Number](spriteNumber SN, x X, y Y, options ...an
 
 	// Apply camera offset before using coordinates for drawing
 	screenFx, screenFy := applyCameraOffset(fx, fy)
-	// Always round destination coordinates to nearest integer for pixel-perfect rendering
-	screenFx = math.Round(screenFx)
-	screenFy = math.Round(screenFy)
+	// Optionally round destination coordinates for pixel-perfect rendering
+	if pixelPerfectRendering {
+		screenFx = math.Round(screenFx)
+		screenFy = math.Round(screenFy)
+	}
 
 	// Use internal package variables set by engine.Draw
 	if currentScreen == nil {
@@ -144,12 +169,47 @@ func Spr[SN Number, X Number, Y Number](spriteNumber SN, x X, y Y, options ...an
 	currentScreen.DrawImage(tempImage, opts)
 }
 
-// findSpriteByID finds a sprite by its ID or falls back to using the index if ID not found
+// findSpriteByID finds a sprite by its ID using sprite mapping optimization
 func findSpriteByID(spriteNumInt int) *spriteInfo {
-	// --- Find the Sprite by ID ---
+	// Handle sprite ID 0 as transparent sentinel - always allow it even if not present
+	if spriteNumInt == 0 {
+		// Try to find sprite 0 first
+		for i := range currentSprites {
+			if currentSprites[i].ID == 0 {
+				return &currentSprites[i]
+			}
+		}
+		// If sprite 0 doesn't exist, return nil (safe no-op)
+		return nil
+	}
+
+	// Use sprite ID mapping if available
+	if SpriteIDMapping != nil {
+		if mappedIndex, exists := SpriteIDMapping[spriteNumInt]; exists {
+			// Handle mapping to 0 (transparent)
+			if mappedIndex == 0 {
+				// Find sprite with ID 0 or return nil for safe no-op
+				for i := range currentSprites {
+					if currentSprites[i].ID == 0 {
+						return &currentSprites[i]
+					}
+				}
+				return nil // Safe no-op if sprite 0 not present
+			}
+
+			// Return the mapped sprite by index
+			if mappedIndex >= 0 && mappedIndex < len(currentSprites) {
+				return &currentSprites[mappedIndex]
+			}
+		}
+		// If not found in mapping, treat as non-existent (return nil for safe no-op)
+		return nil
+	}
+
+	// Fallback to original behavior if no mapping is available
 	var spriteInfo *spriteInfo
 	for i := range currentSprites {
-		if currentSprites[i].ID == spriteNumInt { // Use the integer version
+		if currentSprites[i].ID == spriteNumInt {
 			spriteInfo = &currentSprites[i]
 			break
 		}
@@ -335,26 +395,8 @@ func getSpriteImage(spriteID int) *ebiten.Image {
 		}
 	}
 
-	var foundSpriteInfo *spriteInfo
-
-	// Try to find by ID first
-	for i := range allSprites {
-		if allSprites[i].ID == spriteID {
-			foundSpriteInfo = &allSprites[i]
-			break
-		}
-	}
-
-	// If not found by ID, try to use spriteID as an index (fallback)
-	if foundSpriteInfo == nil {
-		if spriteID >= 0 && spriteID < len(allSprites) {
-			// Check if the sprite at this index has been initialized (has an Image)
-			if allSprites[spriteID].Image != nil {
-				foundSpriteInfo = &allSprites[spriteID]
-			}
-		}
-	}
-
+	// Use the same logic as findSpriteByID for consistency
+	foundSpriteInfo := findSpriteByID(spriteID)
 	if foundSpriteInfo != nil && foundSpriteInfo.Image != nil {
 		return foundSpriteInfo.Image
 	}
@@ -669,9 +711,10 @@ func Fget(spriteNum int, flag ...int) (bitfield int, isSet bool) {
 		}
 	}
 
-	// If sprite not found, return zero values
+	// If sprite not found, return zero values (reduce log noise for frequent queries)
 	if spriteInfo == nil {
-		log.Printf("Warning: Fget() called for non-existent sprite ID %d", spriteNum)
+		// Only log in debug mode or for strict validation - comment out to reduce noise
+		// log.Printf("Debug: Fget() called for non-existent sprite ID %d", spriteNum)
 		return 0, false
 	}
 
@@ -930,9 +973,11 @@ func Sspr[SX Number, SY Number, SW Number, SH Number, DX Number, DY Number](sx S
 	sourceHeight := int(sh) // Source height on spritesheet
 	destX := float64(dx)
 	destY := float64(dy)
-	// Always round destination coordinates to nearest integer for pixel-perfect rendering
-	destX = math.Round(destX)
-	destY = math.Round(destY)
+	// Optionally round destination coordinates for pixel-perfect rendering
+	if pixelPerfectRendering {
+		destX = math.Round(destX)
+		destY = math.Round(destY)
+	}
 
 	// Use internal package variables set by engine.Draw
 	if currentScreen == nil {

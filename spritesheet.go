@@ -1,6 +1,7 @@
 package pigo8
 
 import (
+	"crypto/md5"
 	"encoding/json" // Keep color import
 	"fmt"
 	"log"
@@ -60,6 +61,11 @@ var (
 
 	// spritesheetHeight is the pixel height of the sprite sheet (rows * 8)
 	spritesheetHeight = 128
+
+	// SpriteIDMapping maps original sprite IDs to loaded sprite indices for optimization
+	// This allows empty and duplicate sprites to be mapped to existing sprites
+	// Exported so it can be used by sprite lookup functions
+	SpriteIDMapping map[int]int
 )
 
 // --- Target struct to hold processed sprite info ---
@@ -86,8 +92,8 @@ func loadSpritesheetFromDataForTest(data []byte) ([]spriteInfo, error) {
 	return loadSpritesheetFromDataInternal(data, false)
 }
 
-// loadSpritesheetFromDataInternal is the internal implementation
-func loadSpritesheetFromDataInternal(data []byte, updatePixelCache bool) ([]spriteInfo, error) {
+// validateAndUnmarshalSpritesheet validates and unmarshals the spritesheet data
+func validateAndUnmarshalSpritesheet(data []byte) (*spriteSheet, error) {
 	// Basic check if data is empty
 	if len(data) == 0 {
 		return nil, fmt.Errorf("provided spritesheet data is empty")
@@ -107,10 +113,13 @@ func loadSpritesheetFromDataInternal(data []byte, updatePixelCache bool) ([]spri
 		log.Printf(
 			"Warning: No sprites found after unmarshalling spritesheet data. Check JSON format and tags.",
 		)
-		// Return empty slice, not necessarily an error
-		return []spriteInfo{}, nil
 	}
 
+	return &sheet, nil
+}
+
+// updateSpritesheetDimensions updates global spritesheet dimensions from the sheet data
+func updateSpritesheetDimensions(sheet *spriteSheet) {
 	// Check for custom spritesheet dimensions in the JSON file
 	if sheet.SpriteSheetColumns > 0 && sheet.SpriteSheetRows > 0 {
 		// Update the global sprite sheet dimensions
@@ -130,82 +139,235 @@ func loadSpritesheetFromDataInternal(data []byte, updatePixelCache bool) ([]spri
 		log.Printf("Custom spritesheet dimensions detected: %dx%d sprites (%dx%d pixels)",
 			spritesheetColumns, spritesheetRows, spritesheetWidth, spritesheetHeight)
 	}
+}
+
+// validateSpritePixelData validates that the first sprite has pixel data
+func validateSpritePixelData(sheet *spriteSheet) {
 	// Check if pixel data is present for the first sprite (if any)
 	if len(sheet.Sprites) > 0 && len(sheet.Sprites[0].Pixels) == 0 {
 		log.Printf(
 			"Warning: First sprite has empty pixel data after unmarshalling. Check JSON tags, especially for 'pixels'.",
 		)
 	}
+}
 
-	// Process used sprites
+// isEmptySprite checks if a sprite is empty (no pixel data or all pixels are 0)
+func isEmptySprite(spriteData spriteData) bool {
+	// Check if pixel data is empty for this specific sprite
+	if len(spriteData.Pixels) == 0 ||
+		(len(spriteData.Pixels) > 0 && len(spriteData.Pixels[0]) == 0) {
+		return true
+	}
+
+	// Check if sprite is empty (all pixels are 0)
+	return isSpriteEmpty(spriteData)
+}
+
+// checkForDuplicate checks if a sprite is a duplicate and returns the existing index
+func checkForDuplicate(spriteData spriteData, spriteHashes map[string]int) (int, bool) {
+	hash := generateOptimizedSpriteHash(spriteData.Pixels, spriteData.Flags)
+	if existingIndex, exists := spriteHashes[hash]; exists {
+		return existingIndex, true
+	}
+	return 0, false
+}
+
+// createSpriteInfo creates a spriteInfo from spriteData
+func createSpriteInfo(spriteData spriteData, updatePixelCache bool) (spriteInfo, error) {
+	// Create a new Ebiten image for the sprite
+	img := ebiten.NewImage(spriteData.Width, spriteData.Height)
+
+	// Create pixel buffer for batch operations
+	pixels := make([]byte, spriteData.Width*spriteData.Height*4)
+
+	// Iterate over pixels and set colors based on the palette
+	for y, row := range spriteData.Pixels {
+		for x, colorIndex := range row {
+			// Use Pico8Palette (defined in screen.go, same package)
+			if colorIndex >= 0 && colorIndex < len(pico8Palette) {
+				// PICO-8 color 0 is often transparent
+				if colorIndex != 0 {
+					offset := (y*spriteData.Width + x) * 4
+					r, g, b, a := pico8Palette[colorIndex].RGBA()
+					pixels[offset] = uint8(r >> 8)   // Red
+					pixels[offset+1] = uint8(g >> 8) // Green
+					pixels[offset+2] = uint8(b >> 8) // Blue
+					pixels[offset+3] = uint8(a >> 8) // Alpha
+				}
+			} else {
+				log.Printf("Warning: Sprite %d has out-of-range color index %d at (%d, %d)", spriteData.ID, colorIndex, x, y)
+			}
+		}
+	}
+
+	// Upload all pixels to GPU in one operation
+	img.WritePixels(pixels)
+
+	// Create the SpriteInfo struct
+	info := spriteInfo{
+		ID:    spriteData.ID,
+		Image: img,
+		Flags: spriteData.Flags,
+	}
+
+	// Initialize sprite pixel cache for batch reading operations
+	initSpritePixelCache(spriteData.ID, img)
+	if updatePixelCache {
+		updateSpritePixelCache(spriteData.ID, img)
+	}
+
+	return info, nil
+}
+
+// loadSpritesheetFromDataInternal is the internal implementation
+func loadSpritesheetFromDataInternal(data []byte, updatePixelCache bool) ([]spriteInfo, error) {
+	sheet, err := validateAndUnmarshalSpritesheet(data)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return empty slice if no sprites found
+	if len(sheet.Sprites) == 0 {
+		return []spriteInfo{}, nil
+	}
+
+	updateSpritesheetDimensions(sheet)
+	validateSpritePixelData(sheet)
+
+	return processSprites(sheet, updatePixelCache)
+}
+
+// processSprites handles the main sprite processing logic
+func processSprites(sheet *spriteSheet, updatePixelCache bool) ([]spriteInfo, error) {
 	var loadedSprites []spriteInfo
+	localSpriteIDMapping := make(map[int]int)
+	spriteHashes := make(map[string]int) // hash -> first sprite index with this content
+	uniqueLoaded := 0
+	duplicatesMapped := 0
+	emptiesMappedTo0 := 0
+
+	// First pass: load unique sprites and build hash map
 	for _, spriteData := range sheet.Sprites {
 		if !spriteData.Used {
 			continue // Skip unused sprites
 		}
 
-		// Check if pixel data is empty for this specific sprite
-		if len(spriteData.Pixels) == 0 ||
-			(len(spriteData.Pixels) > 0 && len(spriteData.Pixels[0]) == 0) {
-			log.Printf(
-				"Warning: Skipping sprite %d due to missing or empty pixel data.",
-				spriteData.ID,
-			)
+		// Handle empty sprites
+		if isEmptySprite(spriteData) {
+			localSpriteIDMapping[spriteData.ID] = 0
+			emptiesMappedTo0++
 			continue
 		}
 
-		// Create a new Ebiten image for the sprite
-		img := ebiten.NewImage(spriteData.Width, spriteData.Height)
-
-		// Create pixel buffer for batch operations
-		pixels := make([]byte, spriteData.Width*spriteData.Height*4)
-
-		// Iterate over pixels and set colors based on the palette
-		for y, row := range spriteData.Pixels {
-			for x, colorIndex := range row {
-				// Use Pico8Palette (defined in screen.go, same package)
-				if colorIndex >= 0 && colorIndex < len(pico8Palette) {
-					// PICO-8 color 0 is often transparent
-					if colorIndex != 0 {
-						offset := (y*spriteData.Width + x) * 4
-						r, g, b, a := pico8Palette[colorIndex].RGBA()
-						pixels[offset] = uint8(r >> 8)   // Red
-						pixels[offset+1] = uint8(g >> 8) // Green
-						pixels[offset+2] = uint8(b >> 8) // Blue
-						pixels[offset+3] = uint8(a >> 8) // Alpha
-					}
-				} else {
-					log.Printf("Warning: Sprite %d has out-of-range color index %d at (%d, %d)", spriteData.ID, colorIndex, x, y)
-				}
+		// Handle duplicate detection for sprites without flags
+		if spriteData.Flags.Bitfield == 0 {
+			if existingIndex, found := checkForDuplicate(spriteData, spriteHashes); found {
+				localSpriteIDMapping[spriteData.ID] = existingIndex
+				duplicatesMapped++
+				continue
 			}
+			// Store hash for future duplicate detection
+			hash := generateOptimizedSpriteHash(spriteData.Pixels, spriteData.Flags)
+			spriteHashes[hash] = len(loadedSprites)
 		}
 
-		// Upload all pixels to GPU in one operation
-		img.WritePixels(pixels)
-
-		// Create the SpriteInfo struct
-		info := spriteInfo{
-			ID:    spriteData.ID,
-			Image: img,
-			Flags: spriteData.Flags,
+		// Load unique sprite
+		info, err := createSpriteInfo(spriteData, updatePixelCache)
+		if err != nil {
+			return nil, err
 		}
+
 		loadedSprites = append(loadedSprites, info)
-
-		// Initialize sprite pixel cache for batch reading operations
-		initSpritePixelCache(spriteData.ID, img)
-		if updatePixelCache {
-			updateSpritePixelCache(spriteData.ID, img)
-		}
+		localSpriteIDMapping[spriteData.ID] = len(loadedSprites) - 1
+		uniqueLoaded++
 	}
 
-	if len(loadedSprites) == 0 &&
-		len(sheet.Sprites) > 0 { // Only warn if sprites existed but none were 'used'
+	// Post-process sprites and finalize
+	return finalizeSprites(loadedSprites, localSpriteIDMapping, uniqueLoaded, duplicatesMapped, emptiesMappedTo0, updatePixelCache, sheet)
+}
+
+// fillMissingIDs fills in missing sprite IDs up to sheet capacity
+func fillMissingIDs(localSpriteIDMapping map[int]int) {
+	if spritesheetRows > 0 && spritesheetColumns > 0 {
+		maxSpriteID := spritesheetRows * spritesheetColumns
+		for id := 0; id < maxSpriteID; id++ {
+			if _, exists := localSpriteIDMapping[id]; !exists {
+				// Map missing IDs to sprite 0 (transparent)
+				localSpriteIDMapping[id] = 0
+			}
+		}
+	}
+}
+
+// ensureTransparentSprite ensures sprite 0 exists as a transparent sprite
+func ensureTransparentSprite(loadedSprites []spriteInfo, localSpriteIDMapping map[int]int, updatePixelCache bool) ([]spriteInfo, map[int]int, int) {
+	uniqueLoaded := 0
+
+	// Ensure sprite 0 exists as a transparent sprite, but only if we have sprites to work with
+	// or if we're in production mode (updatePixelCache = true)
+	if updatePixelCache && (len(loadedSprites) == 0 || (len(loadedSprites) > 0 && loadedSprites[0].ID != 0)) {
+		// Create a transparent sprite 0
+		transparentSprite := createTransparentSprite()
+		// Insert at the beginning
+		loadedSprites = append([]spriteInfo{transparentSprite}, loadedSprites...)
+		// Update all mappings to account for the shift
+		for id, index := range localSpriteIDMapping {
+			localSpriteIDMapping[id] = index + 1
+		}
+		// Map sprite 0 to the new transparent sprite
+		localSpriteIDMapping[0] = 0
+		uniqueLoaded++
+	} else if len(loadedSprites) > 0 && loadedSprites[0].ID != 0 {
+		// In test mode, only create transparent sprite if we have other sprites but no sprite 0
+		transparentSprite := createTransparentSprite()
+		// Insert at the beginning
+		loadedSprites = append([]spriteInfo{transparentSprite}, loadedSprites...)
+		// Update all mappings to account for the shift
+		for id, index := range localSpriteIDMapping {
+			localSpriteIDMapping[id] = index + 1
+		}
+		// Map sprite 0 to the new transparent sprite
+		localSpriteIDMapping[0] = 0
+		uniqueLoaded++
+	}
+
+	return loadedSprites, localSpriteIDMapping, uniqueLoaded
+}
+
+// finalizeSprites completes sprite processing with post-processing steps
+func finalizeSprites(loadedSprites []spriteInfo, localSpriteIDMapping map[int]int, uniqueLoaded, duplicatesMapped, emptiesMappedTo0 int, updatePixelCache bool, sheet *spriteSheet) ([]spriteInfo, error) {
+	fillMissingIDs(localSpriteIDMapping)
+
+	var additionalUnique int
+	loadedSprites, localSpriteIDMapping, additionalUnique = ensureTransparentSprite(loadedSprites, localSpriteIDMapping, updatePixelCache)
+	uniqueLoaded += additionalUnique
+
+	// Update global sprite ID mapping
+	SpriteIDMapping = localSpriteIDMapping
+
+	// Log optimization statistics
+	logOptimizationStats(uniqueLoaded, duplicatesMapped, emptiesMappedTo0)
+
+	if len(loadedSprites) == 0 && len(sheet.Sprites) > 0 {
 		log.Printf(
 			"Warning: No 'used' sprites were processed. Check the 'used' field in your spritesheet data.",
 		)
 	}
 
 	return loadedSprites, nil
+}
+
+// logOptimizationStats logs sprite optimization statistics
+func logOptimizationStats(uniqueLoaded, duplicatesMapped, emptiesMappedTo0 int) {
+	theoreticalTotal := spritesheetRows * spritesheetColumns
+	if theoreticalTotal > 0 {
+		reductionPercent := float64(theoreticalTotal-uniqueLoaded) / float64(theoreticalTotal) * 100
+		log.Printf("Sprite optimization: %d unique loaded, %d duplicates mapped, %d empties mapped to 0 (%.1f%% reduction from theoretical %d)",
+			uniqueLoaded, duplicatesMapped, emptiesMappedTo0, reductionPercent, theoreticalTotal)
+	} else {
+		log.Printf("Sprite optimization: %d unique loaded, %d duplicates mapped, %d empties mapped to 0",
+			uniqueLoaded, duplicatesMapped, emptiesMappedTo0)
+	}
 }
 
 // loadSpritesheet tries to load spritesheet.json from the current directory, then from common locations,
@@ -269,6 +431,63 @@ func loadSpritesheetInternal(updatePixelCache bool) ([]spriteInfo, error) {
 	log.Printf("Spritesheet: %d sprites (%.1f KB)", len(sprites), fileSize)
 
 	return sprites, nil
+}
+
+// isSpriteEmpty checks if a sprite has all pixels set to 0 (transparent)
+func isSpriteEmpty(sprite spriteData) bool {
+	for _, row := range sprite.Pixels {
+		for _, pixel := range row {
+			if pixel != 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// generateOptimizedSpriteHash creates a hash of sprite pixel data and flags using efficient byte operations
+func generateOptimizedSpriteHash(pixels [][]int, flags FlagsData) string {
+	// Use a more efficient approach than string concatenation
+	hasher := md5.New()
+
+	// Write pixel data directly as bytes to avoid string allocation
+	for _, row := range pixels {
+		for _, pixel := range row {
+			// Write each pixel as 4 bytes (int32)
+			b := make([]byte, 4)
+			b[0] = byte(pixel)
+			b[1] = byte(pixel >> 8)
+			b[2] = byte(pixel >> 16)
+			b[3] = byte(pixel >> 24)
+			hasher.Write(b)
+		}
+	}
+
+	// Include flag data in the hash to prevent mapping sprites with different flags
+	flagBytes := make([]byte, 4)
+	flagBytes[0] = byte(flags.Bitfield)
+	flagBytes[1] = byte(flags.Bitfield >> 8)
+	flagBytes[2] = byte(flags.Bitfield >> 16)
+	flagBytes[3] = byte(flags.Bitfield >> 24)
+	hasher.Write(flagBytes)
+
+	return fmt.Sprintf("%x", hasher.Sum(nil))
+}
+
+// createTransparentSprite creates a transparent sprite with ID 0
+func createTransparentSprite() spriteInfo {
+	// Create an 8x8 transparent image
+	img := ebiten.NewImage(8, 8)
+	// No need to set pixels, they default to transparent
+
+	return spriteInfo{
+		ID:    0,
+		Image: img,
+		Flags: FlagsData{
+			Bitfield:   0,
+			Individual: make([]bool, 8),
+		},
+	}
 }
 
 // LoadSpritesheet loads sprite data from a specific JSON file and updates the

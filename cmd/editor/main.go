@@ -212,10 +212,25 @@ type spriteSheetData struct {
 	Sprites            []spriteData `json:"sprites"`
 }
 
+// isSpriteEmpty checks if a sprite at the given row and column is completely empty (all pixels are 0)
+func isSpriteEmpty(row, col int) bool {
+	for r := 0; r < spriteSize; r++ {
+		for c := 0; c < spriteSize; c++ {
+			if spritesheet[row][col][r][c] != 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // convertSpriteToData converts a sprite at the given row and column to PIGO8's spriteData format
 func convertSpriteToData(row, col int) spriteData {
 	// Calculate sprite index
 	spriteIndex := row*spriteSheetCols + col
+
+	// Check if sprite is empty
+	isEmpty := isSpriteEmpty(row, col)
 
 	// Create a new sprite
 	sprite := spriteData{
@@ -224,7 +239,7 @@ func convertSpriteToData(row, col int) spriteData {
 		Y:      row * spriteSize,
 		Width:  spriteSize,
 		Height: spriteSize,
-		Used:   true, // Mark all sprites as used
+		Used:   !isEmpty, // Only mark non-empty sprites as used
 		Flags: p8.FlagsData{
 			Bitfield:   0, // Will be calculated below
 			Individual: make([]bool, 8),
@@ -321,12 +336,21 @@ func saveSpritesheet() error {
 		Sprites:            make([]spriteData, 0, spriteSheetRows*spriteSheetCols),
 	}
 
-	// Convert all sprites
+	// Convert only non-empty sprites
+	savedCount := 0
+	skippedCount := 0
 	for row := 0; row < spriteSheetRows; row++ {
 		for col := 0; col < spriteSheetCols; col++ {
-			sheet.Sprites = append(sheet.Sprites, convertSpriteToData(row, col))
+			if !isSpriteEmpty(row, col) {
+				sheet.Sprites = append(sheet.Sprites, convertSpriteToData(row, col))
+				savedCount++
+			} else {
+				skippedCount++
+			}
 		}
 	}
+
+	fmt.Printf("Spritesheet saved: %d sprites saved, %d empty sprites skipped\n", savedCount, skippedCount)
 
 	return saveJSONToFile("spritesheet.json", sheet)
 }

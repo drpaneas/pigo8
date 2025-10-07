@@ -34,6 +34,9 @@ var spritePositions = map[string]image.Point{
 
 // Init initializes the game state
 func (g *Game) Init() {
+	// Enable smooth sub-pixel positioning for smoother diagonal movement
+	p8.SetPixelPerfectRendering(false)
+
 	// Initialize player at center with default sprite
 	g.pos = p8.NewVector2D(60, 60)
 	g.speed = 1
@@ -100,11 +103,8 @@ func (g *Game) handleMovement() (isMoving bool) {
 
 	isMoving = dx != 0 || dy != 0
 
-	// Normalize diagonal movement
-	if dx != 0 && dy != 0 {
-		mag := p8.Sqrt(dx*dx + dy*dy)
-		dx, dy = dx/mag, dy/mag
-	}
+	// No normalization - Game Boy style movement allows faster diagonal movement
+	// This eliminates lag and feels more responsive, just like the original Game Boy
 
 	// Move X and check collision
 	if dx != 0 {
@@ -124,9 +124,18 @@ func (g *Game) handleMovement() (isMoving bool) {
 
 	// DEBUG logging if DEBUG=1
 	if os.Getenv("DEBUG") == "1" {
-		log.Printf("Player pos: (%.2f, %.2f), screenX: %d", g.pos.X, g.pos.Y, g.screenX)
+		// Calculate which tile the player is on (center of player sprite)
+		playerCenterX := g.pos.X + 8 // Player sprite is 16x16, so center is +8
+		playerCenterY := g.pos.Y + 8
+		tileX := int(playerCenterX / 8)
+		tileY := int(playerCenterY / 8)
+		currentTileID := p8.Mget(tileX, tileY)
+
+		log.Printf("Player pos: (%.2f, %.2f), tile: (%d, %d), tile ID: %d",
+			g.pos.X, g.pos.Y, tileX, tileY, currentTileID)
+
 		collides := p8.MapCollision(g.pos.X, g.pos.Y, 0, 16)
-		log.Printf("Collision at (%.2f, %.2f): %v", g.pos.X, g.pos.Y, collides)
+		log.Printf("Collision: %v", collides)
 	}
 
 	return isMoving

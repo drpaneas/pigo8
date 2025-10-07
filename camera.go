@@ -44,7 +44,11 @@ func Camera(args ...any) {
 	// Handle one argument (x only)
 	if len(args) == 1 {
 		if x, ok := convertToFloat64(args[0]); ok {
-			cameraX = math.Round(x)
+			if pixelPerfectRendering {
+				cameraX = math.Round(x)
+			} else {
+				cameraX = x
+			}
 			cameraY = 0 // Set cameraY to 0 as per PICO-8 behavior
 		}
 		return
@@ -53,10 +57,18 @@ func Camera(args ...any) {
 	// Handle two arguments (x and y)
 	if len(args) >= 2 {
 		if x, ok := convertToFloat64(args[0]); ok {
-			cameraX = math.Round(x)
+			if pixelPerfectRendering {
+				cameraX = math.Round(x)
+			} else {
+				cameraX = x
+			}
 		}
 		if y, ok := convertToFloat64(args[1]); ok {
-			cameraY = math.Round(y)
+			if pixelPerfectRendering {
+				cameraY = math.Round(y)
+			} else {
+				cameraY = y
+			}
 		}
 	}
 }
