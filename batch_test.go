@@ -91,12 +91,17 @@ func TestSpritePixelCacheOperations(t *testing.T) {
 	testSprite := ebiten.NewImage(8, 8)
 	spriteID := 42
 
+	// Initialize caches first
+	initializeCaches()
+
 	// Initialize cache
 	initSpritePixelCache(spriteID, testSprite)
 
-	spritePixelCacheMutex.RLock()
-	cacheSize := spritePixelCacheSize[spriteID]
-	spritePixelCacheMutex.RUnlock()
+	_, cacheSize, found := spritePixelCacheManager.Get(spriteID)
+
+	if !found {
+		t.Error("Sprite pixel cache should be initialized")
+	}
 
 	if cacheSize != 8*8*4 {
 		t.Errorf("Sprite pixel cache size incorrect: got %d, want %d", cacheSize, 8*8*4)
@@ -116,12 +121,11 @@ func TestSpritePixelCacheOperations(t *testing.T) {
 	// Test cache clearing
 	clearSpritePixelCache()
 
-	spritePixelCacheMutex.RLock()
-	cacheCount := len(spritePixelCache)
-	spritePixelCacheMutex.RUnlock()
+	initializeCaches()
+	stats := spritePixelCacheManager.Stats()
 
-	if cacheCount != 0 {
-		t.Errorf("Sprite pixel cache should be empty after clearing, got %d entries", cacheCount)
+	if stats.Size != 0 {
+		t.Errorf("Sprite pixel cache should be empty after clearing, got %d entries", stats.Size)
 	}
 
 	// Test cache statistics
@@ -150,9 +154,14 @@ func TestBatchReadingOptimizations(t *testing.T) {
 		t.Error("Screen pixel cache should be initialized")
 	}
 
-	spritePixelCacheMutex.RLock()
-	spriteCacheExists := spritePixelCache[1] != nil
-	spritePixelCacheMutex.RUnlock()
+	// Initialize caches first
+	initializeCaches()
+
+	// Initialize a specific sprite cache entry
+	testSprite2 := ebiten.NewImage(8, 8)
+	initSpritePixelCache(1, testSprite2)
+
+	_, _, spriteCacheExists := spritePixelCacheManager.Get(1)
 
 	if !spriteCacheExists {
 		t.Error("Sprite pixel cache should be initialized")

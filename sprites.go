@@ -1,10 +1,14 @@
 package pigo8
 
 import (
+	"fmt"
 	"image/color"
 	"log"
 	"math"
+	"os"
+	"runtime"
 	"sync"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"golang.org/x/exp/constraints"
@@ -21,15 +25,13 @@ type Number interface {
 
 // Add sprite caching for transparent versions
 var (
-	// Global sprite cache for transparent versions
-	spriteCache      = make(map[*ebiten.Image]*ebiten.Image)
-	spriteCacheMutex sync.RWMutex
+	// Global sprite cache for transparent versions using LRU
+	spriteImageCache *SpriteImageCache
 
-	// Sprite pixel cache for batch reading operations
-	spritePixelCache      = make(map[int][]byte) // spriteID -> pixel data
-	spritePixelCacheSize  = make(map[int]int)    // spriteID -> width*height
-	spriteCacheValid      = make(map[int]bool)   // spriteID -> cache validity
-	spritePixelCacheMutex sync.RWMutex
+	// Sprite pixel cache for batch reading operations using LRU
+	spritePixelCacheManager *SpritePixelCache
+	spriteCacheValid        = make(map[int]bool) // spriteID -> cache validity
+	spritePixelCacheMutex   sync.RWMutex
 
 	// Debug configuration
 	debugSpriteLogging = false
@@ -42,6 +44,17 @@ var (
 	// Sprite validation configuration
 	strictValidation = false
 	validationMutex  sync.RWMutex
+
+	// Configuration locking for rendering safety
+	configurationLocked = false
+	configLockMutex     sync.RWMutex
+
+	// Resource limits
+	resourceLimits    = DefaultResourceLimits()
+	limitsInitialized = false
+
+	// Cache initialization
+	cacheInitOnce sync.Once
 )
 
 // RenderConfig holds rendering configuration options
@@ -63,10 +76,12 @@ type RenderConfig struct {
 //
 //	// Enable debug logging
 //	p8.SetDebugSpriteLogging(true)
-func SetDebugSpriteLogging(enabled bool) {
-	debugMutex.Lock()
-	defer debugMutex.Unlock()
-	debugSpriteLogging = enabled
+func SetDebugSpriteLogging(enabled bool) error {
+	return safeConfigurationChange(func() {
+		debugMutex.Lock()
+		defer debugMutex.Unlock()
+		debugSpriteLogging = enabled
+	})
 }
 
 // SetOptimizeSprites controls whether sprite optimization (deduplication) is enabled during loading.
@@ -81,10 +96,12 @@ func SetDebugSpriteLogging(enabled bool) {
 //
 //	// Disable sprite optimization for debugging
 //	p8.SetOptimizeSprites(false)
-func SetOptimizeSprites(enabled bool) {
-	optimizeMutex.Lock()
-	defer optimizeMutex.Unlock()
-	optimizeSprites = enabled
+func SetOptimizeSprites(enabled bool) error {
+	return safeConfigurationChange(func() {
+		optimizeMutex.Lock()
+		defer optimizeMutex.Unlock()
+		optimizeSprites = enabled
+	})
 }
 
 // SetStrictValidation controls whether strict sprite validation is enabled.
@@ -100,10 +117,12 @@ func SetOptimizeSprites(enabled bool) {
 //
 //	// Enable strict validation for development
 //	p8.SetStrictValidation(true)
-func SetStrictValidation(enabled bool) {
-	validationMutex.Lock()
-	defer validationMutex.Unlock()
-	strictValidation = enabled
+func SetStrictValidation(enabled bool) error {
+	return safeConfigurationChange(func() {
+		validationMutex.Lock()
+		defer validationMutex.Unlock()
+		strictValidation = enabled
+	})
 }
 
 // SetRenderConfig applies a complete render configuration in a thread-safe manner.
@@ -119,10 +138,17 @@ func SetStrictValidation(enabled bool) {
 //		StrictValidation: false,
 //	}
 //	p8.SetRenderConfig(config)
-func SetRenderConfig(config RenderConfig) {
-	SetDebugSpriteLogging(config.DebugSprites)
-	SetOptimizeSprites(config.OptimizeSprites)
-	SetStrictValidation(config.StrictValidation)
+func SetRenderConfig(config RenderConfig) error {
+	if err := SetDebugSpriteLogging(config.DebugSprites); err != nil {
+		return fmt.Errorf("failed to set debug sprites: %w", err)
+	}
+	if err := SetOptimizeSprites(config.OptimizeSprites); err != nil {
+		return fmt.Errorf("failed to set optimize sprites: %w", err)
+	}
+	if err := SetStrictValidation(config.StrictValidation); err != nil {
+		return fmt.Errorf("failed to set strict validation: %w", err)
+	}
+	return nil
 }
 
 // GetRenderConfig returns the current render configuration in a thread-safe manner.
@@ -162,6 +188,198 @@ func isStrictValidationEnabled() bool {
 	validationMutex.RLock()
 	defer validationMutex.RUnlock()
 	return strictValidation
+}
+
+// initializeCaches initializes the sprite cache systems (thread-safe, one-time only)
+func initializeCaches() {
+	cacheInitOnce.Do(func() {
+		if !limitsInitialized {
+			resourceLimits = DefaultResourceLimits()
+			limitsInitialized = true
+		}
+
+		spriteImageCache = NewSpriteImageCache(resourceLimits.MaxCacheSize)
+		spritePixelCacheManager = NewSpritePixelCache(resourceLimits.MaxCacheSize)
+	})
+}
+
+// EnsureCachesInitialized ensures caches are initialized (call this at startup)
+// This prevents initialization overhead in hot paths
+func EnsureCachesInitialized() {
+	initializeCaches()
+}
+
+// PrewarmSpriteCache pre-creates transparent versions of sprites to avoid cache misses
+func PrewarmSpriteCache(sprites []spriteInfo) {
+	if spriteImageCache == nil {
+		return
+	}
+
+	for _, sprite := range sprites {
+		if sprite.Image != nil {
+			// Pre-create transparent version
+			_ = createTransparentSpriteImage(sprite.Image)
+		}
+	}
+}
+
+// getCaller returns the calling function name for debug logging
+func getCaller() string {
+	// This is a simplified version - in production you might want to use runtime.Caller
+	return "unknown"
+}
+
+// getFrameNumber returns the current frame number
+func getFrameNumber() int64 {
+	return GetCurrentFrameNumber()
+}
+
+// LockConfiguration prevents configuration changes during rendering
+// This should be called at the start of each frame to prevent visual glitches
+func LockConfiguration() {
+	configLockMutex.Lock()
+	defer configLockMutex.Unlock()
+	configurationLocked = true
+}
+
+// UnlockConfiguration allows configuration changes after rendering
+// This should be called at the end of each frame
+func UnlockConfiguration() {
+	configLockMutex.Lock()
+	defer configLockMutex.Unlock()
+	configurationLocked = false
+}
+
+// isConfigurationLocked checks if configuration is currently locked
+func isConfigurationLocked() bool {
+	configLockMutex.RLock()
+	defer configLockMutex.RUnlock()
+	return configurationLocked
+}
+
+// safeConfigurationChange executes a configuration change only if not locked
+func safeConfigurationChange(changeFn func()) error {
+	if isConfigurationLocked() {
+		return fmt.Errorf("configuration is locked during rendering - changes not allowed")
+	}
+	changeFn()
+	return nil
+}
+
+// SetResourceLimits configures resource usage limits for the sprite system
+func SetResourceLimits(limits ResourceLimits) error {
+	return safeConfigurationChange(func() {
+		resourceLimits = limits
+
+		// Reinitialize caches with new limits if they exist
+		if spriteImageCache != nil {
+			// Note: This is a simplified approach - in production you might want to preserve existing cache entries
+			spriteImageCache = NewSpriteImageCache(limits.MaxCacheSize)
+		}
+		if spritePixelCacheManager != nil {
+			spritePixelCacheManager = NewSpritePixelCache(limits.MaxCacheSize)
+		}
+	})
+}
+
+// GetResourceLimits returns the current resource limits
+func GetResourceLimits() ResourceLimits {
+	return resourceLimits
+}
+
+// CheckResourceUsage checks current resource usage against limits and returns warnings
+func CheckResourceUsage() []string {
+	return CheckResourceLimits(resourceLimits)
+}
+
+// ForceGarbageCollection forces garbage collection and cache cleanup
+func ForceGarbageCollection() {
+	// Clear caches to free memory
+	ClearSpriteCache()
+
+	// Clear hash table
+	spriteHashTable.Clear()
+
+	// Force Go garbage collection
+	runtime.GC()
+
+	if isDebugEnabled() {
+		metrics := GetSpriteMetrics()
+		log.Printf("Debug: Forced garbage collection - Memory usage: %d bytes", metrics.MemoryUsage)
+	}
+}
+
+// ReloadSprites reloads the sprite system from disk - critical for game development workflow
+func ReloadSprites() error {
+	start := time.Now()
+	defer func() {
+		metricsCollector.RecordLoadTime(time.Since(start))
+	}()
+
+	if isDebugEnabled() {
+		log.Printf("Debug: Starting sprite hot-reload...")
+	}
+
+	// Clear all caches first
+	ClearSpriteCache()
+	spriteHashTable.Clear()
+
+	// Reset sprite pixel cache validity
+	spritePixelCacheMutex.Lock()
+	spriteCacheValid = make(map[int]bool)
+	spritePixelCacheMutex.Unlock()
+
+	// Reload sprites from disk
+	newSprites, err := loadSpritesheet()
+	if err != nil {
+		return fmt.Errorf("failed to reload sprites: %w", err)
+	}
+
+	// Update global sprite reference
+	currentSprites = newSprites
+
+	if isDebugEnabled() {
+		log.Printf("Debug: Hot-reload completed - loaded %d sprites in %v",
+			len(newSprites), time.Since(start))
+	}
+
+	return nil
+}
+
+// WatchSpritesheetFile watches the spritesheet file for changes and auto-reloads
+// This is useful during development but should be disabled in production
+func WatchSpritesheetFile(filePath string, callback func(error)) {
+	if !isDebugEnabled() {
+		log.Printf("Warning: Sprite file watching requires debug mode to be enabled")
+		return
+	}
+
+	go func() {
+		var lastModTime time.Time
+
+		for {
+			if stat, err := os.Stat(filePath); err == nil {
+				if !lastModTime.IsZero() && stat.ModTime().After(lastModTime) {
+					if isDebugEnabled() {
+						log.Printf("Debug: Detected spritesheet file change, reloading...")
+					}
+
+					if reloadErr := ReloadSprites(); reloadErr != nil {
+						if callback != nil {
+							callback(reloadErr)
+						}
+					} else {
+						if callback != nil {
+							callback(nil)
+						}
+					}
+				}
+				lastModTime = stat.ModTime()
+			}
+
+			time.Sleep(1 * time.Second) // Check every second
+		}
+	}()
 }
 
 // Spr draws a potentially fractional rectangular region of sprites,
@@ -248,11 +466,12 @@ func Spr[SN Number, X Number, Y Number](spriteNumber SN, x X, y Y, options ...an
 	spriteInfo := findSpriteByID(spriteNumInt)
 	if spriteInfo == nil {
 		// No sprite found with this ID or at this index
-		if isDebugEnabled() {
-			log.Printf("Debug: Sprite %d not found in Spr()", spriteNumInt)
-		}
+		debugSpriteNotFound(spriteNumInt, fx, fy)
 		return
 	}
+
+	// Record sprite rendered (frame-level, minimal overhead)
+	recordSpriteRendered()
 
 	// Parse optional arguments
 	scaleW, scaleH, flipX, flipY := parseSprOptions(options)
@@ -394,12 +613,13 @@ func parseSprOptions(options []any) (scaleW float64, scaleH float64, flipX bool,
 
 // createTransparentSpriteImage creates a transparent version of a sprite, with caching
 func createTransparentSpriteImage(tileImage *ebiten.Image) *ebiten.Image {
-	spriteCacheMutex.RLock()
-	if cached, exists := spriteCache[tileImage]; exists {
-		spriteCacheMutex.RUnlock()
+	// Check cache first (caches are initialized once via sync.Once)
+	if cached, exists := spriteImageCache.Get(tileImage); exists {
+		recordCacheHit()
 		return cached
 	}
-	spriteCacheMutex.RUnlock()
+
+	recordCacheMiss()
 
 	// Create new transparent image
 	width := tileImage.Bounds().Dx()
@@ -434,18 +654,19 @@ func createTransparentSpriteImage(tileImage *ebiten.Image) *ebiten.Image {
 	tempImage.WritePixels(destPixels)
 
 	// Cache the result
-	spriteCacheMutex.Lock()
-	spriteCache[tileImage] = tempImage
-	spriteCacheMutex.Unlock()
+	spriteImageCache.Put(tileImage, tempImage)
 
 	return tempImage
 }
 
 // ClearSpriteCache clears the sprite cache (useful for memory management)
 func ClearSpriteCache() {
-	spriteCacheMutex.Lock()
-	spriteCache = make(map[*ebiten.Image]*ebiten.Image)
-	spriteCacheMutex.Unlock()
+	if spriteImageCache != nil {
+		spriteImageCache.Clear()
+	}
+	if spritePixelCacheManager != nil {
+		spritePixelCacheManager.Clear()
+	}
 }
 
 // setupDrawOptions creates and configures the drawing options for a sprite
@@ -557,15 +778,14 @@ func Sget[X Number, Y Number](x X, y Y) int {
 		if sprite.ID == spriteCellID {
 			// Try to get pixel from cache first (batch reading optimization)
 			spritePixelCacheMutex.RLock()
-			if spriteCacheValid[spriteCellID] && spritePixelCache[spriteCellID] != nil {
-				cacheSize := spritePixelCacheSize[spriteCellID]
-				if cacheSize > 0 {
+			if spriteCacheValid[spriteCellID] {
+				if pixels, cacheSize, found := spritePixelCacheManager.Get(spriteCellID); found && cacheSize > 0 {
 					offset := (localY*8 + localX) * 4
-					if offset+3 < len(spritePixelCache[spriteCellID]) {
-						r := spritePixelCache[spriteCellID][offset]
-						g := spritePixelCache[spriteCellID][offset+1]
-						b := spritePixelCache[spriteCellID][offset+2]
-						a := spritePixelCache[spriteCellID][offset+3]
+					if offset+3 < len(pixels) {
+						r := pixels[offset]
+						g := pixels[offset+1]
+						b := pixels[offset+2]
+						a := pixels[offset+3]
 						spritePixelCacheMutex.RUnlock()
 
 						// Create color from RGBA values
@@ -574,6 +794,7 @@ func Sget[X Number, Y Number](x X, y Y) int {
 						// Find the matching color in the PICO-8 palette
 						for i, color := range pico8Palette {
 							if colorEquals(pixelColor, color) {
+								recordCacheHit()
 								return i // Return the color index (0-15)
 							}
 						}
@@ -582,6 +803,8 @@ func Sget[X Number, Y Number](x X, y Y) int {
 				}
 			}
 			spritePixelCacheMutex.RUnlock()
+
+			recordCacheMiss()
 
 			// Fallback to individual pixel read if cache is not available
 			pixelColor := sprite.Image.At(localX, localY)
@@ -820,10 +1043,8 @@ func Fget(spriteNum int, flag ...int) (bitfield int, isSet bool) {
 
 	// If sprite not found, return zero values (reduce log noise for frequent queries)
 	if spriteInfo == nil {
-		// Only log in debug mode to reduce noise
-		if isDebugEnabled() {
-			log.Printf("Debug: Fget() called for non-existent sprite ID %d", spriteNum)
-		}
+		// Only log in debug builds to reduce noise
+		debugLog("Fget() called for non-existent sprite ID %d", spriteNum)
 		return 0, false
 	}
 
@@ -1219,10 +1440,13 @@ func initSpritePixelCache(spriteID int, sprite *ebiten.Image) {
 	height := sprite.Bounds().Dy()
 	cacheSize := width * height * 4
 
-	if spritePixelCacheSize[spriteID] != cacheSize {
-		spritePixelCache[spriteID] = make([]byte, cacheSize)
-		spritePixelCacheSize[spriteID] = cacheSize
-		spriteCacheValid[spriteID] = false
+	// Check if we need to update the cache (cache should be initialized by now)
+	if spritePixelCacheManager != nil {
+		if _, currentSize, found := spritePixelCacheManager.Get(spriteID); !found || currentSize != cacheSize {
+			pixels := make([]byte, cacheSize)
+			spritePixelCacheManager.Put(spriteID, pixels, cacheSize)
+			spriteCacheValid[spriteID] = false
+		}
 	}
 }
 
@@ -1231,13 +1455,20 @@ func updateSpritePixelCache(spriteID int, sprite *ebiten.Image) {
 	spritePixelCacheMutex.Lock()
 	defer spritePixelCacheMutex.Unlock()
 
-	if sprite == nil || spritePixelCache[spriteID] == nil {
+	// Get cached pixels (cache should be initialized by now)
+	if spritePixelCacheManager == nil {
+		spriteCacheValid[spriteID] = false
+		return
+	}
+
+	pixels, cacheSize, found := spritePixelCacheManager.Get(spriteID)
+	if sprite == nil || !found || cacheSize == 0 {
 		spriteCacheValid[spriteID] = false
 		return
 	}
 
 	// Read all pixels from GPU in one batch operation
-	sprite.ReadPixels(spritePixelCache[spriteID])
+	sprite.ReadPixels(pixels)
 	spriteCacheValid[spriteID] = true
 }
 
@@ -1253,8 +1484,9 @@ func clearSpritePixelCache() {
 	spritePixelCacheMutex.Lock()
 	defer spritePixelCacheMutex.Unlock()
 
-	spritePixelCache = make(map[int][]byte)
-	spritePixelCacheSize = make(map[int]int)
+	if spritePixelCacheManager != nil {
+		spritePixelCacheManager.Clear()
+	}
 	spriteCacheValid = make(map[int]bool)
 }
 
@@ -1263,15 +1495,23 @@ func GetSpritePixelCacheStats() (totalSprites int, validSprites int, totalSize i
 	spritePixelCacheMutex.RLock()
 	defer spritePixelCacheMutex.RUnlock()
 
-	totalSprites = len(spritePixelCache)
+	if spritePixelCacheManager != nil {
+		stats := spritePixelCacheManager.Stats()
+		totalSprites = stats.Size
+	} else {
+		totalSprites = 0
+	}
 	validSprites = 0
 	totalSize = 0
 
-	for spriteID, cache := range spritePixelCache {
-		if spriteCacheValid[spriteID] {
+	// Count valid sprites
+	for spriteID, valid := range spriteCacheValid {
+		if valid {
 			validSprites++
+			if _, size, found := spritePixelCacheManager.Get(spriteID); found {
+				totalSize += size
+			}
 		}
-		totalSize += len(cache)
 	}
 
 	return totalSprites, validSprites, totalSize

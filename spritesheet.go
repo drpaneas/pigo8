@@ -3,10 +3,10 @@ package pigo8
 import (
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -211,15 +211,6 @@ func isEmptySprite(spriteData spriteData) bool {
 	return isSpriteEmpty(spriteData)
 }
 
-// checkForDuplicate checks if a sprite is a duplicate and returns the existing index
-func checkForDuplicate(spriteData spriteData, spriteHashes map[string]int) (int, bool) {
-	hash := generateOptimizedSpriteHash(spriteData.Pixels, spriteData.Flags)
-	if existingIndex, exists := spriteHashes[hash]; exists {
-		return existingIndex, true
-	}
-	return 0, false
-}
-
 // createSpriteInfo creates a spriteInfo from spriteData
 func createSpriteInfo(spriteData spriteData, updatePixelCache bool) (spriteInfo, error) {
 	// Create a new Ebiten image for the sprite
@@ -300,14 +291,20 @@ func processSprites(sheet *spriteSheet, updatePixelCache bool) ([]spriteInfo, er
 			continue // Skip unused sprites
 		}
 
-		// Validate sprite data
+		// Validate sprite data with timing
+		validationStart := time.Now()
 		if err := spriteData.Validate(); err != nil {
+			metricsCollector.RecordValidationTime(time.Since(validationStart))
+			recordValidationError()
+
 			if isStrictValidationEnabled() {
+				metricsCollector.RecordStrictValidation()
 				return nil, fmt.Errorf("strict validation failed for sprite %d: %w", spriteData.ID, err)
 			}
 			log.Printf("Warning: Skipping invalid sprite: %v", err)
 			continue
 		}
+		metricsCollector.RecordValidationTime(time.Since(validationStart))
 
 		// Handle empty sprites
 		if isEmptySprite(spriteData) {
@@ -318,13 +315,14 @@ func processSprites(sheet *spriteSheet, updatePixelCache bool) ([]spriteInfo, er
 
 		// Handle duplicate detection for sprites without flags (only if optimization is enabled)
 		if isOptimizationEnabled() && spriteData.Flags.Bitfield == 0 {
-			if existingIndex, found := checkForDuplicate(spriteData, spriteHashes); found {
+			if existingIndex, found := checkForDuplicateWithCollisionDetection(spriteData, spriteHashes); found {
 				localSpriteIDMapping[spriteData.ID] = existingIndex
 				duplicatesMapped++
+				recordSpriteSkipped()
 				continue
 			}
 			// Store hash for future duplicate detection
-			hash := generateOptimizedSpriteHash(spriteData.Pixels, spriteData.Flags)
+			hash := generateOptimizedSpriteHashInternal(spriteData.Pixels, spriteData.Flags)
 			spriteHashes[hash] = len(loadedSprites)
 		}
 
@@ -337,6 +335,7 @@ func processSprites(sheet *spriteSheet, updatePixelCache bool) ([]spriteInfo, er
 		loadedSprites = append(loadedSprites, info)
 		localSpriteIDMapping[spriteData.ID] = len(loadedSprites) - 1
 		uniqueLoaded++
+		recordSpriteLoaded()
 	}
 
 	// Post-process sprites and finalize
@@ -500,36 +499,6 @@ func isSpriteEmpty(sprite spriteData) bool {
 		}
 	}
 	return true
-}
-
-// generateOptimizedSpriteHash creates a hash of sprite pixel data and flags for deduplication
-// Uses FNV-1a hash for fast, efficient sprite comparison during loading
-func generateOptimizedSpriteHash(pixels [][]int, flags FlagsData) string {
-	// Use FNV-1a hash for fast sprite deduplication
-	hasher := fnv.New64a()
-
-	// Write pixel data directly as bytes to avoid string allocation
-	for _, row := range pixels {
-		for _, pixel := range row {
-			// Write each pixel as 4 bytes (int32)
-			b := make([]byte, 4)
-			b[0] = byte(pixel)
-			b[1] = byte(pixel >> 8)
-			b[2] = byte(pixel >> 16)
-			b[3] = byte(pixel >> 24)
-			hasher.Write(b)
-		}
-	}
-
-	// Include flag data in the hash to prevent mapping sprites with different flags
-	flagBytes := make([]byte, 4)
-	flagBytes[0] = byte(flags.Bitfield)
-	flagBytes[1] = byte(flags.Bitfield >> 8)
-	flagBytes[2] = byte(flags.Bitfield >> 16)
-	flagBytes[3] = byte(flags.Bitfield >> 24)
-	hasher.Write(flagBytes)
-
-	return fmt.Sprintf("%x", hasher.Sum64())
 }
 
 // createTransparentSprite creates a transparent sprite with ID 0
