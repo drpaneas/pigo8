@@ -1,6 +1,7 @@
 package pigo8
 
 import (
+	_ "embed"
 	"log"
 	"math"
 	"sync"
@@ -8,41 +9,48 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// ===== Optimization 3: DrawImageOptions Pool =====
-// Pool DrawImageOptions to avoid per-draw allocations
+// ===== Transparency Shader =====
+// Kage shader for PICO-8 style color-key transparency.
+// Treats black (color 0) as transparent, eliminating pixel copying overhead.
 
-type drawOptionsPool struct {
-	pool []*ebiten.DrawImageOptions
-	mu   sync.Mutex
+//go:embed transparency.kage
+var transparencyShaderSrc []byte
+
+var (
+	// transparencyShader is the compiled shader for color-key transparency
+	transparencyShader *ebiten.Shader
+	// shaderInitOnce ensures shader is compiled only once
+	shaderInitOnce sync.Once
+	// shaderInitError stores any error from shader compilation
+	shaderInitError error
+)
+
+// initTransparencyShader compiles the transparency shader (called once via sync.Once)
+func initTransparencyShader() {
+	shaderInitOnce.Do(func() {
+		transparencyShader, shaderInitError = ebiten.NewShader(transparencyShaderSrc)
+		if shaderInitError != nil {
+			log.Printf("Warning: Failed to compile transparency shader: %v. Falling back to pixel copying.", shaderInitError)
+		}
+	})
 }
 
-var theDrawOptionsPool drawOptionsPool
-
-func (p *drawOptionsPool) get() *ebiten.DrawImageOptions {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if len(p.pool) == 0 {
-		return &ebiten.DrawImageOptions{}
-	}
-	v := p.pool[len(p.pool)-1]
-	p.pool[len(p.pool)-1] = nil
-	p.pool = p.pool[:len(p.pool)-1]
-	// Reset to clean state
-	v.GeoM.Reset()
-	v.ColorScale.Reset()
-	return v
+// getTransparencyShader returns the compiled shader, initializing if needed
+func getTransparencyShader() *ebiten.Shader {
+	initTransparencyShader()
+	return transparencyShader
 }
 
-func (p *drawOptionsPool) put(v *ebiten.DrawImageOptions) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+// ===== Optimization 3: Reusable DrawImageOptions =====
+// Single reusable options struct - reset per draw call.
+// No mutex needed since Draw is single-threaded in Ebiten.
+// This is more efficient than a mutex-based pool for single-threaded rendering.
+var reusableDrawOpts ebiten.DrawImageOptions
 
-	if len(p.pool) >= 256 { // Limit pool size
-		return
-	}
-	p.pool = append(p.pool, v)
-}
+// Reusable DrawRectShaderOptions for shader-based rendering.
+// Note: Images is a [4]*Image fixed-size array (not a slice), so Images[0] is always
+// a valid access even on a zero-initialized struct - no initialization needed.
+var reusableShaderOpts ebiten.DrawRectShaderOptions
 
 // ===== Optimization 4: Sprite ID Map =====
 // Build sprite ID -> index map once when sprites load
@@ -248,19 +256,62 @@ func Spr[SN Number, X Number, Y Number](spriteNumber SN, x X, y Y, options ...an
 	spriteWidth := float64(tileImage.Bounds().Dx())
 	spriteHeight := float64(tileImage.Bounds().Dy())
 
-	// Create a transparent version of the sprite
-	tempImage := createTransparentSpriteImage(tileImage)
-
 	// Calculate final dimensions
 	destWidth := spriteWidth * scaleW
 	destHeight := spriteHeight * scaleH
 
-	// Setup drawing options (using pool)
+	// Try shader-based transparency (more efficient - no pixel copying)
+	shader := getTransparencyShader()
+	if shader != nil {
+		drawSpriteWithShader(currentScreen, tileImage, screenFx, screenFy, destWidth, destHeight, scaleW, scaleH, flipX, flipY)
+		MarkShadowBufferDirtyFromSprite() // Mark for lazy Pget() sync
+		return
+	}
+
+	// Fallback: Create a transparent version of the sprite (pixel copying)
+	tempImage := createTransparentSpriteImage(tileImage)
+
+	// Setup drawing options (reuses single struct, no pool needed)
 	opts := setupDrawOptions(screenFx, screenFy, destWidth, destHeight, scaleW, scaleH, flipX, flipY)
-	defer theDrawOptionsPool.put(opts)
 
 	// Draw the sprite
 	currentScreen.DrawImage(tempImage, opts)
+	MarkShadowBufferDirtyFromSprite() // Mark for lazy Pget() sync
+}
+
+// drawSpriteWithShader draws a sprite using the transparency shader.
+// This is more efficient than creating transparent sprite copies via pixel manipulation.
+// The shader treats black (color 0) as transparent directly on the GPU.
+func drawSpriteWithShader(dst, src *ebiten.Image, fx, fy, destWidth, destHeight, scaleW, scaleH float64, flipX, flipY bool) {
+	// Reset shader options
+	reusableShaderOpts.GeoM.Reset()
+	reusableShaderOpts.ColorScale.Reset()
+
+	// Apply scaling
+	if scaleW != 1.0 || scaleH != 1.0 {
+		reusableShaderOpts.GeoM.Scale(scaleW, scaleH)
+	}
+
+	// Apply flipping if needed
+	if flipX {
+		reusableShaderOpts.GeoM.Scale(-1, 1)
+		reusableShaderOpts.GeoM.Translate(destWidth, 0)
+	}
+
+	if flipY {
+		reusableShaderOpts.GeoM.Scale(1, -1)
+		reusableShaderOpts.GeoM.Translate(0, destHeight)
+	}
+
+	// Apply final position
+	reusableShaderOpts.GeoM.Translate(fx, fy)
+
+	// Set the source image for the shader
+	reusableShaderOpts.Images[0] = src
+
+	// Draw using the transparency shader
+	bounds := src.Bounds()
+	dst.DrawRectShader(bounds.Dx(), bounds.Dy(), transparencyShader, &reusableShaderOpts)
 }
 
 // findSpriteByID finds a sprite by its ID using O(1) map lookup
@@ -433,37 +484,39 @@ func createTransparentSpriteImage(tileImage *ebiten.Image) *ebiten.Image {
 	return tempImage
 }
 
-// setupDrawOptions creates and configures the drawing options for a sprite
-// Uses pooled DrawImageOptions to avoid allocations
+// setupDrawOptions configures the reusable drawing options for a sprite.
+// Resets and reuses a single struct since Draw is single-threaded in Ebiten.
+// This avoids both allocation overhead and mutex contention from pooling.
 func setupDrawOptions(fx, fy, destWidth, destHeight, scaleW, scaleH float64, flipX, flipY bool) *ebiten.DrawImageOptions {
-	// Get from pool instead of allocating
-	opts := theDrawOptionsPool.get()
+	// Reset to clean state (reusing the same struct)
+	reusableDrawOpts.GeoM.Reset()
+	reusableDrawOpts.ColorScale.Reset()
 
 	// Apply scaling
 	if scaleW != 1.0 || scaleH != 1.0 {
-		opts.GeoM.Scale(scaleW, scaleH)
+		reusableDrawOpts.GeoM.Scale(scaleW, scaleH)
 	}
 
 	// Apply flipping if needed
 	if flipX {
 		// For X flip: Scale by -1 on X axis, then translate to compensate
-		opts.GeoM.Scale(-1, 1)
-		opts.GeoM.Translate(destWidth, 0)
+		reusableDrawOpts.GeoM.Scale(-1, 1)
+		reusableDrawOpts.GeoM.Translate(destWidth, 0)
 	}
 
 	if flipY {
 		// For Y flip: Scale by -1 on Y axis, then translate to compensate
-		opts.GeoM.Scale(1, -1)
-		opts.GeoM.Translate(0, destHeight)
+		reusableDrawOpts.GeoM.Scale(1, -1)
+		reusableDrawOpts.GeoM.Translate(0, destHeight)
 	}
 
 	// Apply final position
-	opts.GeoM.Translate(fx, fy)
+	reusableDrawOpts.GeoM.Translate(fx, fy)
 
 	// Ensure nearest-neighbor filtering for pixel-perfect rendering
-	opts.Filter = ebiten.FilterNearest
+	reusableDrawOpts.Filter = ebiten.FilterNearest
 
-	return opts
+	return &reusableDrawOpts
 }
 
 // getSpriteImage returns the *ebiten.Image for a given sprite ID.
@@ -686,9 +739,9 @@ func Sspr[SX Number, SY Number, SW Number, SH Number, DX Number, DY Number](sx S
 	// Create a temporary image for the source region
 	sourceImage := createSpriteSourceImage(sourceX, sourceY, sourceWidth, sourceHeight)
 
-	// Get from pool instead of allocating (Optimization 3)
-	op := theDrawOptionsPool.get()
-	defer theDrawOptionsPool.put(op)
+	// Reset and reuse the single draw options struct (no pool needed)
+	reusableDrawOpts.GeoM.Reset()
+	reusableDrawOpts.ColorScale.Reset()
 
 	// Apply camera offset to the intended top-left drawing position (dx, dy)
 	screenDrawX, screenDrawY := applyCameraOffset(destX, destY)
@@ -711,9 +764,10 @@ func Sspr[SX Number, SY Number, SW Number, SH Number, DX Number, DY Number](sx S
 		finalTranslateY += destHeight // Adjust translation for vertical flip
 	}
 
-	op.GeoM.Scale(scaleX, scaleY)
-	op.GeoM.Translate(finalTranslateX, finalTranslateY) // Use camera-adjusted and flip-adjusted coordinates
+	reusableDrawOpts.GeoM.Scale(scaleX, scaleY)
+	reusableDrawOpts.GeoM.Translate(finalTranslateX, finalTranslateY) // Use camera-adjusted and flip-adjusted coordinates
 
 	// Draw the image to the screen
-	currentScreen.DrawImage(sourceImage, op)
+	currentScreen.DrawImage(sourceImage, &reusableDrawOpts)
+	MarkShadowBufferDirtyFromSprite() // Mark for lazy Pget() sync
 }

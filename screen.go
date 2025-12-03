@@ -103,6 +103,22 @@ var (
 	screenPixelCacheHeight int
 	screenCacheValid       bool
 	screenCacheMutex       sync.RWMutex
+
+	// Shadow buffer - CPU-side mirror of screen pixels for Pget() without GPU sync.
+	// This eliminates GPU-CPU synchronization overhead for pixel collision detection.
+	//
+	// THREAD SAFETY: No mutex needed because all shadow buffer operations occur within
+	// Ebiten's Draw() method, which is guaranteed to be called from a single goroutine.
+	// The currentScreen=nil guard in engine.go catches misuse from outside Draw().
+	shadowBuffer       []byte // CPU mirror of screen pixels (RGBA format)
+	shadowBufferWidth  int
+	shadowBufferHeight int
+	shadowBufferValid  bool
+
+	// shadowBufferDirtyFromSprites tracks if sprites were drawn via DrawImage/DrawRectShader.
+	// When true, Pget() will sync from GPU before reading (lazy invalidation).
+	// This provides correct behavior for collision detection against sprite-drawn pixels.
+	shadowBufferDirtyFromSprites bool
 )
 
 // pixelMod represents a pending pixel modification
@@ -155,10 +171,14 @@ func Cls(colorIndex ...int) {
 		log.Printf("Warning: Cls() called with invalid color index %d. Defaulting to 0.", idx)
 		idx = 0
 	}
-	currentScreen.Fill(pico8Palette[idx])
+	clr := pico8Palette[idx]
+	currentScreen.Fill(clr)
 
 	// Clear the pixel buffer since we're clearing the screen
 	clearPixelBuffer()
+
+	// Fill shadow buffer with the clear color (for accurate Pget)
+	fillShadowBuffer(clr)
 
 	// Reset the global print cursor position
 	cursorX = 0
@@ -185,6 +205,9 @@ func ClsRGBA(clr color.RGBA) {
 
 	// Clear the pixel buffer since we're clearing the screen
 	clearPixelBuffer()
+
+	// Fill shadow buffer with the clear color (for accurate Pget)
+	fillShadowBuffer(clr)
 
 	// Reset the global print cursor position
 	cursorX = 0
@@ -223,7 +246,38 @@ func Pget(x, y int) int {
 		return 0 // PICO-8 pget returns 0 for out-of-bounds
 	}
 
-	// Try to get pixel from cache first (batch reading optimization)
+	// LAZY INVALIDATION: If sprites were drawn, sync from GPU once
+	// This ensures Pget works correctly for collision detection against sprites
+	if shadowBufferDirtyFromSprites {
+		syncShadowBufferFromGPU()
+	}
+
+	// OPTIMIZATION: Try shadow buffer first (no GPU sync required)
+	// This is the fastest path - reads from CPU memory only
+	if shadowBufferValid && shadowBuffer != nil &&
+		x < shadowBufferWidth && y < shadowBufferHeight {
+		offset := (y*shadowBufferWidth + x) * 4
+		if offset+3 < len(shadowBuffer) {
+			r := shadowBuffer[offset]
+			g := shadowBuffer[offset+1]
+			b := shadowBuffer[offset+2]
+			a := shadowBuffer[offset+3]
+
+			// Create color from RGBA values
+			pixelColor := color.RGBA{r, g, b, a}
+
+			// Use the colorToIndexMap for O(1) lookup (thread-safe)
+			colorToIndexMapMutex.RLock()
+			index, ok := colorToIndexMap[pixelColor]
+			colorToIndexMapMutex.RUnlock()
+			if ok {
+				return index
+			}
+			// Shadow buffer lookup failed - fall through to screen cache
+		}
+	}
+
+	// Try screen cache second (batch reading optimization, but requires GPU sync)
 	screenCacheMutex.RLock()
 	if screenCacheValid && screenPixelCache != nil &&
 		x < screenPixelCacheWidth && y < screenPixelCacheHeight {
@@ -246,15 +300,14 @@ func Pget(x, y int) int {
 				return index
 			}
 			// Cache lookup failed - fall through to fallback path
-			// instead of returning 0 immediately (handles edge cases
-			// like cache/palette mismatch or color space issues)
 			goto fallback
 		}
 	}
 	screenCacheMutex.RUnlock()
 
 fallback:
-	// Fallback to individual pixel read if cache is not available
+	// Fallback to individual pixel read if caches are not available
+	// WARNING: This causes GPU-CPU sync and is slow!
 	pixelColor := currentScreen.At(x, y)
 
 	// Normalize to color.RGBA for consistent map lookup
@@ -826,6 +879,20 @@ func initPixelBuffer(width, height int) {
 
 	// Also initialize screen pixel cache for reading operations
 	initScreenPixelCache(width, height)
+
+	// Initialize shadow buffer for Pget() without GPU sync
+	initShadowBuffer(width, height)
+}
+
+// initShadowBuffer initializes the CPU shadow buffer for Pget()
+func initShadowBuffer(width, height int) {
+	if shadowBufferWidth != width || shadowBufferHeight != height {
+		shadowBufferWidth = width
+		shadowBufferHeight = height
+		shadowBuffer = make([]byte, width*height*4) // RGBA format
+		shadowBufferValid = true
+		log.Printf("Initialized shadow buffer: %dx%d (%d bytes)", width, height, len(shadowBuffer))
+	}
 }
 
 // flushPixelBuffer uploads all pending pixel changes to the GPU
@@ -850,11 +917,25 @@ func setPixelInBuffer(x, y int, clr color.Color) {
 
 	offset := (y*pixelBufferWidth + x) * 4
 	r, g, b, a := clr.RGBA()
-	pixelBuffer[offset] = uint8(r >> 8)   // Red
-	pixelBuffer[offset+1] = uint8(g >> 8) // Green
-	pixelBuffer[offset+2] = uint8(b >> 8) // Blue
-	pixelBuffer[offset+3] = uint8(a >> 8) // Alpha
+	rByte := uint8(r >> 8)
+	gByte := uint8(g >> 8)
+	bByte := uint8(b >> 8)
+	aByte := uint8(a >> 8)
+
+	// Update GPU buffer
+	pixelBuffer[offset] = rByte   // Red
+	pixelBuffer[offset+1] = gByte // Green
+	pixelBuffer[offset+2] = bByte // Blue
+	pixelBuffer[offset+3] = aByte // Alpha
 	bufferDirty = true
+
+	// Also update shadow buffer (for Pget without GPU sync)
+	if shadowBuffer != nil && shadowBufferValid {
+		shadowBuffer[offset] = rByte
+		shadowBuffer[offset+1] = gByte
+		shadowBuffer[offset+2] = bByte
+		shadowBuffer[offset+3] = aByte
+	}
 }
 
 // clearPixelBuffer clears the pixel buffer and marks it as clean
@@ -869,8 +950,69 @@ func clearPixelBuffer() {
 		bufferDirty = false
 	}
 
+	// Also clear shadow buffer
+	clearShadowBuffer()
+
 	// Also invalidate screen pixel cache
 	invalidateScreenPixelCache()
+}
+
+// clearShadowBuffer clears the CPU shadow buffer
+func clearShadowBuffer() {
+	if len(shadowBuffer) > 0 {
+		for i := range shadowBuffer {
+			shadowBuffer[i] = 0
+		}
+	}
+}
+
+// fillShadowBuffer fills the CPU shadow buffer with a color
+func fillShadowBuffer(clr color.Color) {
+	if len(shadowBuffer) == 0 || !shadowBufferValid {
+		return
+	}
+
+	r, g, b, a := clr.RGBA()
+	rByte := uint8(r >> 8)
+	gByte := uint8(g >> 8)
+	bByte := uint8(b >> 8)
+	aByte := uint8(a >> 8)
+
+	// Fill all pixels with the color
+	for i := 0; i < len(shadowBuffer); i += 4 {
+		shadowBuffer[i] = rByte
+		shadowBuffer[i+1] = gByte
+		shadowBuffer[i+2] = bByte
+		shadowBuffer[i+3] = aByte
+	}
+}
+
+// MarkShadowBufferDirtyFromSprite marks the shadow buffer as needing GPU sync.
+// Call this when sprites are drawn via DrawImage/DrawRectShader.
+// The next Pget() call will sync from GPU before reading.
+func MarkShadowBufferDirtyFromSprite() {
+	shadowBufferDirtyFromSprites = true
+}
+
+// syncShadowBufferFromGPU syncs the shadow buffer from the GPU.
+// This is called lazily by Pget() when sprites have been drawn.
+func syncShadowBufferFromGPU() {
+	if currentScreen == nil {
+		return
+	}
+
+	// Update screen pixel cache from GPU (this causes GPU-CPU sync)
+	updateScreenPixelCache()
+
+	// Copy screen cache to shadow buffer
+	screenCacheMutex.RLock()
+	if screenCacheValid && len(screenPixelCache) > 0 && len(shadowBuffer) >= len(screenPixelCache) {
+		copy(shadowBuffer, screenPixelCache)
+	}
+	screenCacheMutex.RUnlock()
+
+	// Reset dirty flag
+	shadowBufferDirtyFromSprites = false
 }
 
 // initScreenPixelCache initializes the screen pixel cache for batch reading operations

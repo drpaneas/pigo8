@@ -1,6 +1,7 @@
 package pigo8
 
 import (
+	"image/color"
 	"runtime"
 	"testing"
 	"time"
@@ -363,6 +364,123 @@ func BenchmarkMemoryAllocationProfile(b *testing.B) {
 			if _, _, exists := spritePixelCacheManager.Get(spriteID); !exists {
 				spritePixelCacheManager.Put(spriteID, pixels, 64)
 			}
+		}
+	})
+}
+
+// BenchmarkTransparencyShaderInit benchmarks shader initialization overhead
+func BenchmarkTransparencyShaderInit(b *testing.B) {
+	b.Run("GetTransparencyShader", func(b *testing.B) {
+		b.ReportAllocs()
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			// After first call, this should be a fast no-op
+			_ = getTransparencyShader()
+		}
+	})
+}
+
+// BenchmarkDrawOptionsReuse benchmarks DrawImageOptions reuse pattern
+func BenchmarkDrawOptionsReuse(b *testing.B) {
+	b.Run("SetupDrawOptions", func(b *testing.B) {
+		b.ReportAllocs()
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			opts := setupDrawOptions(
+				float64(i%128), float64(i%128), // fx, fy
+				8.0, 8.0, // destWidth, destHeight
+				1.0, 1.0, // scaleW, scaleH
+				false, false, // flipX, flipY
+			)
+			_ = opts
+		}
+	})
+
+	b.Run("SetupDrawOptions_WithFlip", func(b *testing.B) {
+		b.ReportAllocs()
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			opts := setupDrawOptions(
+				float64(i%128), float64(i%128),
+				8.0, 8.0,
+				2.0, 2.0, // scaled
+				true, true, // flipped
+			)
+			_ = opts
+		}
+	})
+}
+
+// BenchmarkShadowBufferLazySync benchmarks shadow buffer lazy invalidation
+func BenchmarkShadowBufferLazySync(b *testing.B) {
+	// Initialize shadow buffer
+	initShadowBuffer(128, 128)
+
+	b.Run("MarkDirty", func(b *testing.B) {
+		b.ReportAllocs()
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			MarkShadowBufferDirtyFromSprite()
+		}
+	})
+
+	b.Run("FillShadowBuffer", func(b *testing.B) {
+		b.ReportAllocs()
+		testColor := color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			fillShadowBuffer(testColor)
+		}
+	})
+
+	b.Run("ClearShadowBuffer", func(b *testing.B) {
+		b.ReportAllocs()
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			clearShadowBuffer()
+		}
+	})
+}
+
+// BenchmarkPixelBufferPool benchmarks pixel buffer pooling efficiency
+func BenchmarkPixelBufferPool(b *testing.B) {
+	b.Run("GetPut_8x8", func(b *testing.B) {
+		b.ReportAllocs()
+		size := 8 * 8 * 4
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			buf := getPixelBuffer(size)
+			putPixelBuffer(buf)
+		}
+	})
+
+	b.Run("GetPut_16x16", func(b *testing.B) {
+		b.ReportAllocs()
+		size := 16 * 16 * 4
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			buf := getPixelBuffer(size)
+			putPixelBuffer(buf)
+		}
+	})
+
+	b.Run("GetOnly_MixedSizes", func(b *testing.B) {
+		b.ReportAllocs()
+		sizes := []int{8 * 8 * 4, 16 * 16 * 4, 32 * 32 * 4}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			size := sizes[i%len(sizes)]
+			buf := getPixelBuffer(size)
+			_ = buf
 		}
 	})
 }

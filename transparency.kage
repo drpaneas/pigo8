@@ -1,0 +1,28 @@
+//kage:unit pixels
+
+// Package main provides a Kage shader for PICO-8 style color-key transparency.
+// This shader treats black (color index 0, RGB 0,0,0) as transparent,
+// eliminating the need to create modified sprite copies with pixel manipulation.
+package main
+
+// Fragment is the fragment shader function.
+// It processes each pixel and makes black pixels transparent.
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	// Sample the source image at the current position
+	clr := imageSrc0At(srcPos)
+
+	// Treat black (PICO-8 color 0) as transparent.
+	// Using threshold comparison for robustness against:
+	// - Floating-point precision issues
+	// - Sprites from compressed formats with slight color drift
+	// - Near-black colors that should still be treated as transparent
+	//
+	// Thresholds: RGB < 0.01 (~2/255) and Alpha > 0.99 (~253/255)
+	if clr.r < 0.01 && clr.g < 0.01 && clr.b < 0.01 && clr.a > 0.99 {
+		return vec4(0) // Fully transparent
+	}
+
+	// For all other pixels, apply the color scale (for tinting/effects)
+	return clr * color
+}
+
