@@ -87,7 +87,7 @@ func BenchmarkSpriteValidation(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sprite.Validate()
+		_ = sprite.Validate()
 	}
 }
 
@@ -117,7 +117,7 @@ func BenchmarkMetricsCollection(b *testing.B) {
 func BenchmarkConfigurationOperations(b *testing.B) {
 	b.Run("SetDebugSpriteLogging", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			SetDebugSpriteLogging(i%2 == 0)
+			_ = SetDebugSpriteLogging(i%2 == 0)
 		}
 	})
 
@@ -135,7 +135,7 @@ func TestStressTestConcurrentAccess(t *testing.T) {
 	}
 
 	// Initialize system
-	SetDebugSpriteLogging(false) // Reduce log noise
+	_ = SetDebugSpriteLogging(false) // Reduce log noise
 
 	const numGoroutines = 10
 	const operationsPerGoroutine = 1000
@@ -144,14 +144,14 @@ func TestStressTestConcurrentAccess(t *testing.T) {
 
 	// Start multiple goroutines performing different operations
 	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
+		go func(_ int) {
 			defer func() { done <- true }()
 
 			for j := 0; j < operationsPerGoroutine; j++ {
 				switch j % 4 {
 				case 0:
 					// Configuration changes
-					SetDebugSpriteLogging(j%2 == 0)
+					_ = SetDebugSpriteLogging(j%2 == 0)
 				case 1:
 					// Metrics collection
 					metricsCollector.RecordSpriteRendered()

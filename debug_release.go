@@ -5,7 +5,7 @@ package pigo8
 // Release build optimizations - minimal overhead
 
 // debugSpriteNotFound is a no-op in release builds
-func debugSpriteNotFound(spriteID int, x, y float64) {
+func debugSpriteNotFound(_ int, _, _ float64) {
 	// No-op for performance
 }
 
@@ -14,17 +14,7 @@ func debugEnabled() bool {
 	return false
 }
 
-// recordDebugMetrics is a no-op in release builds
-func recordDebugMetrics() {
-	// No-op for performance
-}
-
 // debugLog is a no-op in release builds
-func debugLog(format string, args ...interface{}) {
+func debugLog(_ string, _ ...interface{}) {
 	// No-op for performance
-}
-
-// validateSpriteInDebug is a no-op in release builds
-func validateSpriteInDebug(spriteID int) bool {
-	return true // Always valid in release
 }

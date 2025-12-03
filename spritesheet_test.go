@@ -186,8 +186,8 @@ func TestGenerateOptimizedSpriteHash(t *testing.T) {
 	assert.NotEmpty(t, hash1, "Hash should not be empty")
 
 	// Test hash consistency - same input should produce same hash
-	hash1_repeat := generateOptimizedSpriteHashInternal(pixels1, flags1)
-	assert.Equal(t, hash1, hash1_repeat, "Same input should produce same hash")
+	hash1Repeat := generateOptimizedSpriteHashInternal(pixels1, flags1)
+	assert.Equal(t, hash1, hash1Repeat, "Same input should produce same hash")
 
 	// Test hash uniqueness - different pixels should produce different hashes
 	pixels2 := [][]int{{1, 2}, {3, 5}} // Changed last value
@@ -250,9 +250,9 @@ func TestGenerateOptimizedSpriteHashCollisions(t *testing.T) {
 
 func TestRenderConfigAPI(t *testing.T) {
 	// Reset to defaults first
-	SetDebugSpriteLogging(false)
-	SetOptimizeSprites(true)
-	SetStrictValidation(false)
+	_ = SetDebugSpriteLogging(false)
+	_ = SetOptimizeSprites(true)
+	_ = SetStrictValidation(false)
 
 	// Test default configuration
 	defaultConfig := GetRenderConfig()
@@ -288,9 +288,9 @@ func TestRenderConfigAPI(t *testing.T) {
 	assert.Equal(t, newConfig.StrictValidation, resultConfig.StrictValidation, "SetRenderConfig should set StrictValidation")
 
 	// Reset to defaults for other tests
-	SetDebugSpriteLogging(false)
-	SetOptimizeSprites(true)
-	SetStrictValidation(false)
+	_ = SetDebugSpriteLogging(false)
+	_ = SetOptimizeSprites(true)
+	_ = SetStrictValidation(false)
 }
 
 func TestStrictValidationBehavior(t *testing.T) {
@@ -322,7 +322,7 @@ func TestStrictValidationBehavior(t *testing.T) {
 	assert.Contains(t, err.Error(), "strict validation failed", "Error should mention strict validation")
 
 	// Reset to default
-	SetStrictValidation(false)
+	_ = SetStrictValidation(false)
 }
 
 // --- Tests for loadSpritesheet (Filesystem Interaction) ---

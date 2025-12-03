@@ -23,51 +23,65 @@ func logWarningOnce(format string, args ...interface{}) {
 	}
 }
 
+// parseColorArg extracts a color index from optional arguments.
+// It handles int, float64, and float32 types, validating against the palette.
+// The function updates currentDrawColor and cursorColor to match PICO-8 behavior.
+// Returns the color index to use.
+//
+// funcName: name of the calling function for warning messages (e.g., "Rect/Rectfill", "Line", "Circ/Circfill")
+// updateCursor: whether to also update cursorColor (true for rect/circ, false for line)
+// options: the variadic options slice passed to the calling function
+func parseColorArg(funcName string, updateCursor bool, options []interface{}) int {
+	drawColorIndex := currentDrawColor
+
+	if len(options) >= 1 {
+		switch v := options[0].(type) {
+		case int:
+			if v >= 0 && v < len(pico8Palette) {
+				drawColorIndex = v
+				currentDrawColor = v
+				if updateCursor {
+					cursorColor = v
+				}
+			} else {
+				logWarningOnce("Warning: %s optional color %d out of range (0-15). Using current color %d.", funcName, v, drawColorIndex)
+			}
+		case float64:
+			intVal := int(v)
+			if intVal >= 0 && intVal < len(pico8Palette) {
+				drawColorIndex = intVal
+				currentDrawColor = intVal
+				if updateCursor {
+					cursorColor = intVal
+				}
+			} else {
+				logWarningOnce("Warning: %s optional color %d out of range (0-15). Using current color %d.", funcName, intVal, drawColorIndex)
+			}
+		case float32:
+			intVal := int(v)
+			if intVal >= 0 && intVal < len(pico8Palette) {
+				drawColorIndex = intVal
+				currentDrawColor = intVal
+				if updateCursor {
+					cursorColor = intVal
+				}
+			} else {
+				logWarningOnce("Warning: %s optional color %d out of range (0-15). Using current color %d.", funcName, intVal, drawColorIndex)
+			}
+		default:
+			logWarningOnce("Warning: %s optional color argument expected numeric type, got %T. Using current color %d.", funcName, options[0], drawColorIndex)
+		}
+	}
+
+	return drawColorIndex
+}
+
 // parseRectArgs parses common arguments for Rect and Rectfill.
 // It returns the calculated top-left corner (x, y), dimensions (w, h),
 // the PICO-8 color index to use, and whether parsing was successful.
 func parseRectArgs(x1, y1, x2, y2 float64, options []interface{}) (float32, float32, float32, float32, int, bool) {
-	// Determine drawing color
-	drawColorIndex := currentDrawColor // Use the global current draw color set by Color()
-	if len(options) >= 1 {
-		// Try to handle different numeric types for color
-		switch v := options[0].(type) {
-		case int:
-			// Handle integer color directly
-			if v >= 0 && v < len(pico8Palette) {
-				drawColorIndex = v
-				// Update both color variables to keep them in sync
-				currentDrawColor = v
-				cursorColor = v
-			} else {
-				logWarningOnce("Warning: Rect/Rectfill optional color %d out of range (0-15). Using current color %d.", v, drawColorIndex)
-			}
-		case float64:
-			// Convert float64 to int for color
-			intVal := int(v)
-			if intVal >= 0 && intVal < len(pico8Palette) {
-				drawColorIndex = intVal
-				// Update both color variables to keep them in sync
-				currentDrawColor = intVal
-				cursorColor = intVal
-			} else {
-				logWarningOnce("Warning: Rect/Rectfill optional color %d out of range (0-15). Using current color %d.", intVal, drawColorIndex)
-			}
-		case float32:
-			// Convert float32 to int for color
-			intVal := int(v)
-			if intVal >= 0 && intVal < len(pico8Palette) {
-				drawColorIndex = intVal
-				// Update both color variables to keep them in sync
-				currentDrawColor = intVal
-				cursorColor = intVal
-			} else {
-				logWarningOnce("Warning: Rect/Rectfill optional color %d out of range (0-15). Using current color %d.", intVal, drawColorIndex)
-			}
-		default:
-			logWarningOnce("Warning: Rect/Rectfill optional color argument expected numeric type, got %T. Using current color %d.", options[0], drawColorIndex)
-		}
-	}
+	drawColorIndex := parseColorArg("Rect/Rectfill", true, options)
+
 	if len(options) > 1 {
 		logWarningOnce("Warning: Rect/Rectfill called with too many arguments (%d), expected max 5.", len(options)+4)
 	}
@@ -219,44 +233,8 @@ func Rectfill[X1 Number, Y1 Number, X2 Number, Y2 Number](x1 X1, y1 Y1, x2 X2, y
 // parseLineArgs parses common arguments for Line function.
 // It returns the PICO-8 color index to use and whether parsing was successful.
 func parseLineArgs(options []interface{}) (int, bool) {
-	// Determine drawing color
-	drawColorIndex := currentDrawColor // Use the global current draw color set by Color()
-	if len(options) >= 1 {
-		// Try to handle different numeric types for color
-		switch v := options[0].(type) {
-		case int:
-			// Handle integer color directly
-			if v >= 0 && v < len(pico8Palette) {
-				drawColorIndex = v
-				// Update the global drawing color to match PICO-8 behavior
-				currentDrawColor = v
-			} else {
-				logWarningOnce("Warning: Line optional color %d out of range (0-15). Using current color %d.", v, drawColorIndex)
-			}
-		case float64:
-			// Convert float64 to int for color
-			intVal := int(v)
-			if intVal >= 0 && intVal < len(pico8Palette) {
-				drawColorIndex = intVal
-				// Update the global drawing color to match PICO-8 behavior
-				currentDrawColor = intVal
-			} else {
-				logWarningOnce("Warning: Line optional color %d out of range (0-15). Using current color %d.", intVal, drawColorIndex)
-			}
-		case float32:
-			// Convert float32 to int for color
-			intVal := int(v)
-			if intVal >= 0 && intVal < len(pico8Palette) {
-				drawColorIndex = intVal
-				// Update the global drawing color to match PICO-8 behavior
-				currentDrawColor = intVal
-			} else {
-				logWarningOnce("Warning: Line optional color %d out of range (0-15). Using current color %d.", intVal, drawColorIndex)
-			}
-		default:
-			logWarningOnce("Warning: Line optional color argument expected numeric type, got %T. Using current color %d.", options[0], drawColorIndex)
-		}
-	}
+	drawColorIndex := parseColorArg("Line", false, options)
+
 	if len(options) > 1 {
 		logWarningOnce("Warning: Line called with too many arguments (%d), expected max 5.", len(options)+4)
 	}
@@ -319,47 +297,8 @@ func Line[X1 Number, Y1 Number, X2 Number, Y2 Number](x1 X1, y1 Y1, x2 X2, y2 Y2
 // It returns the center coordinates (x, y), radius, the PICO-8 color index to use,
 // and whether parsing was successful.
 func parseCircArgs(x, y, radius float64, options []interface{}) (float32, float32, float32, int, bool) {
-	// Determine drawing color
-	drawColorIndex := currentDrawColor // Use the global current draw color set by Color()
-	if len(options) >= 1 {
-		// Try to handle different numeric types for color
-		switch v := options[0].(type) {
-		case int:
-			// Handle integer color directly
-			if v >= 0 && v < len(pico8Palette) {
-				drawColorIndex = v
-				// Update both color variables to keep them in sync
-				currentDrawColor = v
-				cursorColor = v
-			} else {
-				logWarningOnce("Warning: Circ/Circfill optional color %d out of range (0-15). Using current color %d.", v, drawColorIndex)
-			}
-		case float64:
-			// Convert float64 to int for color
-			intVal := int(v)
-			if intVal >= 0 && intVal < len(pico8Palette) {
-				drawColorIndex = intVal
-				// Update both color variables to keep them in sync
-				currentDrawColor = intVal
-				cursorColor = intVal
-			} else {
-				logWarningOnce("Warning: Circ/Circfill optional color %d out of range (0-15). Using current color %d.", intVal, drawColorIndex)
-			}
-		case float32:
-			// Convert float32 to int for color
-			intVal := int(v)
-			if intVal >= 0 && intVal < len(pico8Palette) {
-				drawColorIndex = intVal
-				// Update both color variables to keep them in sync
-				currentDrawColor = intVal
-				cursorColor = intVal
-			} else {
-				logWarningOnce("Warning: Circ/Circfill optional color %d out of range (0-15). Using current color %d.", intVal, drawColorIndex)
-			}
-		default:
-			logWarningOnce("Warning: Circ/Circfill optional color argument expected numeric type, got %T. Using current color %d.", options[0], drawColorIndex)
-		}
-	}
+	drawColorIndex := parseColorArg("Circ/Circfill", true, options)
+
 	if len(options) > 1 {
 		logWarningOnce("Warning: Circ/Circfill called with too many arguments (%d), expected max 4.", len(options)+3)
 	}

@@ -22,22 +22,11 @@ func debugEnabled() bool {
 	return isDebugEnabled()
 }
 
-// recordDebugMetrics records debug-specific metrics
-func recordDebugMetrics() {
-	// Could add debug-specific metric collection here
-}
-
 // debugLog performs conditional debug logging
 func debugLog(format string, args ...interface{}) {
 	if isDebugEnabled() {
 		log.Printf("Debug: "+format, args...)
 	}
-}
-
-// validateSpriteInDebug performs additional validation in debug builds
-func validateSpriteInDebug(spriteID int) bool {
-	// Could add additional validation logic here
-	return true
 }
 
 // getCallerName returns the actual calling function name

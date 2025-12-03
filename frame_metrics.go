@@ -22,7 +22,7 @@ type FrameStats struct {
 var (
 	currentFrame     *FrameStats
 	frameCounter     int64
-	frameStatsActive bool = false
+	frameStatsActive = false
 )
 
 // BeginSpriteFrame starts frame-level metrics collection

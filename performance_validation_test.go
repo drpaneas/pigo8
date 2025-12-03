@@ -67,7 +67,7 @@ func TestPerformanceOptimizations(t *testing.T) {
 		}
 
 		// Reset
-		SetDebugSpriteLogging(false)
+		_ = SetDebugSpriteLogging(false)
 	})
 
 	// Test 4: Debug functions should have minimal overhead in release builds
@@ -113,7 +113,7 @@ func TestPerformanceOptimizations(t *testing.T) {
 		}
 
 		// Reset to defaults
-		SetResourceLimits(DefaultResourceLimits())
+		_ = SetResourceLimits(DefaultResourceLimits())
 	})
 }
 
