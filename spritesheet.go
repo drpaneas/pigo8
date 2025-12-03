@@ -280,7 +280,12 @@ func loadSpritesheetFromDataInternal(data []byte, updatePixelCache bool) ([]spri
 func processSprites(sheet *spriteSheet, updatePixelCache bool) ([]spriteInfo, error) {
 	var loadedSprites []spriteInfo
 	localSpriteIDMapping := make(map[int]int)
-	spriteHashes := make(map[string]int) // hash -> first sprite index with this content
+	spriteHashes := make(map[uint64]int) // hash -> first sprite index with this content (uint64 for performance)
+
+	// Clear the global sprite hash table to ensure it's in sync with the local spriteHashes map.
+	// This prevents bugs where duplicates are detected against stale entries from previous batches,
+	// which would cause incorrect isDuplicate=false returns when the hash isn't in spriteHashes.
+	spriteHashTable.Clear()
 	uniqueLoaded := 0
 	duplicatesMapped := 0
 	emptiesMappedTo0 := 0
@@ -315,14 +320,16 @@ func processSprites(sheet *spriteSheet, updatePixelCache bool) ([]spriteInfo, er
 
 		// Handle duplicate detection for sprites without flags (only if optimization is enabled)
 		if isOptimizationEnabled() && spriteData.Flags.Bitfield == 0 {
-			if existingIndex, found := checkForDuplicateWithCollisionDetection(spriteData, spriteHashes); found {
+			existingIndex, isDuplicate, hash := checkForDuplicateWithCollisionDetection(spriteData, spriteHashes)
+			if isDuplicate {
 				localSpriteIDMapping[spriteData.ID] = existingIndex
 				duplicatesMapped++
 				recordSpriteSkipped()
 				continue
 			}
 			// Store hash for future duplicate detection
-			hash := generateOptimizedSpriteHashInternal(spriteData.Pixels, spriteData.Flags)
+			// IMPORTANT: Use the hash returned by checkForDuplicateWithCollisionDetection
+			// (which may be collision-adjusted) to avoid overwriting entries on hash collisions
 			spriteHashes[hash] = len(loadedSprites)
 		}
 

@@ -62,29 +62,47 @@ func Sget[X Number, Y Number](x X, y Y) int {
 						// Create color from RGBA values
 						pixelColor := color.RGBA{r, g, b, a}
 
-						// Find the matching color in the PICO-8 palette
-						for i, c := range pico8Palette {
-							if colorEquals(pixelColor, c) {
-								recordCacheHit()
-								return i // Return the color index (0-15)
-							}
+						// Use colorToIndexMap for O(1) lookup instead of linear search (thread-safe)
+						colorToIndexMapMutex.RLock()
+						index, ok := colorToIndexMap[pixelColor]
+						colorToIndexMapMutex.RUnlock()
+						if ok {
+							recordCacheHit()
+							return index
 						}
-						return 0
+						// Cache lookup failed - fall through to fallback path
+						// instead of returning 0 immediately (handles edge cases
+						// like cache/palette mismatch or color space issues)
+						recordCacheMiss()
+						goto fallback
 					}
 				}
 			}
 			spritePixelCacheMutex.RUnlock()
 
 			recordCacheMiss()
+		fallback:
 
 			// Fallback to individual pixel read if cache is not available
 			pixelColor := sprite.Image.At(localX, localY)
 
-			// Find the matching color in the PICO-8 palette
-			for i, c := range pico8Palette {
-				if colorEquals(pixelColor, c) {
-					return i // Return the color index (0-15)
-				}
+			// Normalize to color.RGBA for consistent map lookup
+			// sprite.Image.At() may return different color types (NRGBA, Gray, etc.)
+			// but colorToIndexMap is keyed by color.RGBA
+			r, g, b, a := pixelColor.RGBA()
+			normalizedColor := color.RGBA{
+				R: uint8(r >> 8),
+				G: uint8(g >> 8),
+				B: uint8(b >> 8),
+				A: uint8(a >> 8),
+			}
+
+			// Use colorToIndexMap for O(1) lookup instead of linear search (thread-safe)
+			colorToIndexMapMutex.RLock()
+			index, ok := colorToIndexMap[normalizedColor]
+			colorToIndexMapMutex.RUnlock()
+			if ok {
+				return index
 			}
 			// If no matching color found, return 0 (transparent/black)
 			return 0
@@ -93,13 +111,6 @@ func Sget[X Number, Y Number](x X, y Y) int {
 
 	// If no matching pixel was found, return 0
 	return 0
-}
-
-// colorEquals compares two colors for equality
-func colorEquals(c1, c2 color.Color) bool {
-	r1, g1, b1, a1 := c1.RGBA()
-	r2, g2, b2, a2 := c2.RGBA()
-	return r1 == r2 && g1 == g2 && b1 == b2 && a1 == a2
 }
 
 // Color sets the current draw color to be used by subsequent drawing operations.

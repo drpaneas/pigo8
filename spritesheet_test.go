@@ -208,7 +208,7 @@ func TestGenerateOptimizedSpriteHash(t *testing.T) {
 
 func TestGenerateOptimizedSpriteHashCollisions(t *testing.T) {
 	// Test for hash collisions with a reasonable set of sprite variations
-	hashes := make(map[string]bool)
+	hashes := make(map[uint64]bool)
 	collisions := 0
 	totalHashes := 0
 
@@ -246,6 +246,217 @@ func TestGenerateOptimizedSpriteHashCollisions(t *testing.T) {
 
 	t.Logf("Hash collision test: %d collisions out of %d hashes (%.2f%% collision rate)",
 		collisions, totalHashes, collisionRate*100)
+}
+
+// TestHashTableDuplicateDetectionAfterCollision verifies that duplicates are correctly
+// detected among collision-adjusted entries. This is a regression test for the bug where:
+// 1. Sprite A with content X is added → stored at hash H
+// 2. Sprite B with content Y (different) and same hash H (collision) → stored at H ^ (B.ID << 32)
+// 3. Sprite C with same content as B → should be detected as duplicate of B, not treated as new collision
+func TestHashTableDuplicateDetectionAfterCollision(t *testing.T) {
+	// Content A: first sprite
+	pixelsA := [][]int{{1, 2}, {3, 4}}
+	flagsA := FlagsData{Bitfield: 0, Individual: []bool{false, false, false, false, false, false, false, false}}
+
+	// Content B: different from A
+	pixelsB := [][]int{{5, 6}, {7, 8}}
+	flagsB := FlagsData{Bitfield: 0, Individual: []bool{false, false, false, false, false, false, false, false}}
+
+	// Test 1: Basic duplicate detection (no collision)
+	t.Run("BasicDuplicateDetection", func(t *testing.T) {
+		hashTable := NewSpriteHashTable()
+
+		// Add sprite A (ID=1)
+		hashA, isDupA := hashTable.AddEntry(pixelsA, flagsA, 1)
+		assert.False(t, isDupA, "Sprite A should not be a duplicate")
+		assert.NotZero(t, hashA, "Hash should not be zero")
+
+		// Add sprite B (ID=2) - different content
+		hashB, isDupB := hashTable.AddEntry(pixelsB, flagsB, 2)
+		assert.False(t, isDupB, "Sprite B should not be a duplicate of A")
+
+		// Add sprite C (ID=3) with same content as B - should detect as duplicate
+		hashC, isDupC := hashTable.AddEntry(pixelsB, flagsB, 3)
+		assert.True(t, isDupC, "Sprite C should be detected as duplicate of B")
+		assert.Equal(t, hashB, hashC, "Sprite C should return same hash as B")
+	})
+
+	// Test 2: Duplicate detection after hash collision
+	// This simulates the scenario where A and B have the same hash but different content
+	t.Run("DuplicateDetectionAfterCollision", func(t *testing.T) {
+		hashTable := NewSpriteHashTable()
+
+		// Compute the hash that B would have
+		hashB := generateOptimizedSpriteHashInternal(pixelsB, flagsB)
+
+		// Manually insert sprite A at B's hash to simulate a collision
+		// This makes it look like A and B have the same hash
+		hashTable.entries[hashB] = &SpriteHashEntry{
+			Hash:   hashB,
+			Pixels: pixelsA, // A's content
+			Flags:  flagsA,
+		}
+
+		// Now add sprite B (ID=2) - should detect collision with A and use adjusted hash
+		collisionHash, isDupB := hashTable.AddEntry(pixelsB, flagsB, 2)
+		assert.False(t, isDupB, "Sprite B should not be marked as duplicate (different content from A)")
+		assert.NotEqual(t, hashB, collisionHash, "B should get a collision-adjusted hash")
+
+		// Now add sprite C (ID=3) with same content as B
+		// Before the fix: C would find A at hashB, see they're different, create new collision entry
+		// After the fix: C should find B in the all-entries search
+		hashC, isDupC := hashTable.AddEntry(pixelsB, flagsB, 3)
+		assert.True(t, isDupC, "Sprite C should be detected as duplicate of B")
+		assert.Equal(t, collisionHash, hashC, "Sprite C should return B's collision-adjusted hash")
+	})
+
+	// Test 3: Multiple sprites with same content should all be detected as duplicates
+	t.Run("MultipleDuplicatesAfterCollision", func(t *testing.T) {
+		hashTable := NewSpriteHashTable()
+
+		// Compute the hash that B would have
+		hashB := generateOptimizedSpriteHashInternal(pixelsB, flagsB)
+
+		// Manually insert sprite A at B's hash to simulate a collision
+		hashTable.entries[hashB] = &SpriteHashEntry{
+			Hash:   hashB,
+			Pixels: pixelsA,
+			Flags:  flagsA,
+		}
+
+		// Add B (ID=2) - gets collision-adjusted hash
+		collisionHash, _ := hashTable.AddEntry(pixelsB, flagsB, 2)
+
+		// Add C (ID=3), D (ID=4), E (ID=5) - all with same content as B
+		for id := 3; id <= 5; id++ {
+			hash, isDup := hashTable.AddEntry(pixelsB, flagsB, id)
+			assert.True(t, isDup, "Sprite %d should be detected as duplicate of B", id)
+			assert.Equal(t, collisionHash, hash, "Sprite %d should return B's hash", id)
+		}
+	})
+
+	// Test 4: Multiple distinct collisions should get unique hashes (not overwrite each other)
+	t.Run("MultipleDistinctCollisionsGetUniqueHashes", func(t *testing.T) {
+		hashTable := NewSpriteHashTable()
+
+		// Content C: third unique content
+		pixelsC := [][]int{{9, 10}, {11, 12}}
+		flagsC := FlagsData{Bitfield: 0, Individual: []bool{false, false, false, false, false, false, false, false}}
+
+		// Compute the hash that all sprites will share (forced collision scenario)
+		hashA := generateOptimizedSpriteHashInternal(pixelsA, flagsA)
+
+		// Manually insert sprite A at hashA
+		hashTable.entries[hashA] = &SpriteHashEntry{
+			Hash:   hashA,
+			Pixels: pixelsA,
+			Flags:  flagsA,
+		}
+
+		// Add B (different content, same hash) - should get collision hash #1
+		collisionHash1, isDupB := hashTable.AddEntry(pixelsB, flagsB, 2)
+		assert.False(t, isDupB, "Sprite B should not be a duplicate")
+		assert.NotEqual(t, hashA, collisionHash1, "B should get a collision-adjusted hash")
+
+		// Manually insert sprite with collisionHash1 to simulate it being taken
+		// Then add C (different content, same base hash) - should get collision hash #2
+		hashTable.entries[collisionHash1] = &SpriteHashEntry{
+			Hash:   collisionHash1,
+			Pixels: pixelsB,
+			Flags:  flagsB,
+		}
+
+		collisionHash2, isDupC := hashTable.AddEntry(pixelsC, flagsC, 3)
+		assert.False(t, isDupC, "Sprite C should not be a duplicate")
+		assert.NotEqual(t, hashA, collisionHash2, "C should not use original hash")
+		assert.NotEqual(t, collisionHash1, collisionHash2, "C should get a different collision hash than B")
+
+		// Verify all three entries exist and are distinct
+		assert.Equal(t, 3, len(hashTable.entries), "Should have 3 distinct entries")
+
+		// Verify content is preserved correctly
+		entryA, existsA := hashTable.entries[hashA]
+		assert.True(t, existsA, "Entry A should exist")
+		assert.Equal(t, pixelsA, entryA.Pixels, "Entry A should have correct pixels")
+
+		entryB, existsB := hashTable.entries[collisionHash1]
+		assert.True(t, existsB, "Entry B should exist")
+		assert.Equal(t, pixelsB, entryB.Pixels, "Entry B should have correct pixels")
+
+		entryC, existsC := hashTable.entries[collisionHash2]
+		assert.True(t, existsC, "Entry C should exist")
+		assert.Equal(t, pixelsC, entryC.Pixels, "Entry C should have correct pixels")
+	})
+}
+
+// TestGlobalHashTableClearedBetweenBatches verifies that the global spriteHashTable
+// is cleared at the start of each processSprites call, preventing state leakage
+// between batches that would cause incorrect duplicate detection.
+func TestGlobalHashTableClearedBetweenBatches(t *testing.T) {
+	// This test verifies the fix for the bug where:
+	// 1. First batch: Sprite A added to global spriteHashTable
+	// 2. Second batch: Sprite B (same as A) checked, AddEntry returns isDup=true
+	//    but spriteHashes is empty, so checkForDuplicateWithCollisionDetection
+	//    incorrectly returns isDuplicate=false
+
+	// Verify the global hash table starts fresh for each test
+	spriteHashTable.Clear()
+
+	// Add some entries to the global hash table to simulate a previous batch
+	pixels := [][]int{{1, 2}, {3, 4}}
+	flags := FlagsData{Bitfield: 0, Individual: []bool{false, false, false, false, false, false, false, false}}
+
+	_, _ = spriteHashTable.AddEntry(pixels, flags, 1)
+
+	// Verify the entry exists
+	stats := spriteHashTable.Stats()
+	assert.Equal(t, 1, stats.EntryCount, "Entry should exist before processing")
+
+	// Create a simple spritesheet to process
+	jsonData := []byte(`{
+		"sprites": [
+			{
+				"id": 0, "x": 0, "y": 0, "width": 8, "height": 8, "used": true,
+				"flags": {"bitfield": 0, "individual": [false,false,false,false,false,false,false,false]},
+				"pixels": [
+					[1, 1, 1, 1, 1, 1, 1, 1],
+					[1, 1, 1, 1, 1, 1, 1, 1],
+					[1, 1, 1, 1, 1, 1, 1, 1],
+					[1, 1, 1, 1, 1, 1, 1, 1],
+					[1, 1, 1, 1, 1, 1, 1, 1],
+					[1, 1, 1, 1, 1, 1, 1, 1],
+					[1, 1, 1, 1, 1, 1, 1, 1],
+					[1, 1, 1, 1, 1, 1, 1, 1]
+				]
+			}
+		]
+	}`)
+
+	// Process the spritesheet - this should clear the global hash table
+	_, err := loadSpritesheetFromDataForTest(jsonData)
+	require.NoError(t, err)
+
+	// The global hash table should now only contain entries from this batch
+	// (not the entry we added before)
+	// Note: The exact count depends on whether the sprite was added to the hash table
+	// We mainly want to verify that the old entry (pixels [[1,2],[3,4]]) is gone
+	newStats := spriteHashTable.Stats()
+
+	// The old entry should be cleared - the table should have been reset
+	// and only contain entries from the new batch
+	t.Logf("Hash table entries after processing: %d", newStats.EntryCount)
+
+	// Verify the old entry is gone by trying to find a duplicate of it
+	localSpriteHashes := make(map[uint64]int)
+	testSpriteData := spriteData{
+		ID:     99,
+		Pixels: pixels,
+		Flags:  flags,
+	}
+
+	// If the table was cleared, this should NOT find a duplicate
+	_, isDuplicate, _ := checkForDuplicateWithCollisionDetection(testSpriteData, localSpriteHashes)
+	assert.False(t, isDuplicate, "Should not find duplicate from previous batch after table was cleared")
 }
 
 func TestRenderConfigAPI(t *testing.T) {

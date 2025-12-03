@@ -25,7 +25,8 @@ var (
 	drawPaletteMap []int
 
 	// colorToIndexMap provides O(1) lookup from color to palette index
-	colorToIndexMap map[color.Color]int
+	colorToIndexMap      map[color.Color]int
+	colorToIndexMapMutex sync.RWMutex
 
 	// originalPico8Palette holds the an immutable copy of the standard 16 PICO-8 colors.
 	// This is used as a reference to check if the current palette is the default.
@@ -126,7 +127,11 @@ func init() {
 }
 
 // buildColorToIndexMap creates a map for O(1) color to index lookups
+// Thread-safe: acquires write lock on colorToIndexMapMutex
 func buildColorToIndexMap() {
+	colorToIndexMapMutex.Lock()
+	defer colorToIndexMapMutex.Unlock()
+
 	colorToIndexMap = make(map[color.Color]int, len(pico8Palette))
 	for i, paletteColor := range pico8Palette {
 		colorToIndexMap[paletteColor] = i
@@ -233,20 +238,41 @@ func Pget(x, y int) int {
 			// Create color from RGBA values
 			pixelColor := color.RGBA{r, g, b, a}
 
-			// Use the colorToIndexMap for O(1) lookup
-			if index, ok := colorToIndexMap[pixelColor]; ok {
+			// Use the colorToIndexMap for O(1) lookup (thread-safe)
+			colorToIndexMapMutex.RLock()
+			index, ok := colorToIndexMap[pixelColor]
+			colorToIndexMapMutex.RUnlock()
+			if ok {
 				return index
 			}
-			return 0
+			// Cache lookup failed - fall through to fallback path
+			// instead of returning 0 immediately (handles edge cases
+			// like cache/palette mismatch or color space issues)
+			goto fallback
 		}
 	}
 	screenCacheMutex.RUnlock()
 
+fallback:
 	// Fallback to individual pixel read if cache is not available
 	pixelColor := currentScreen.At(x, y)
 
-	// Use the colorToIndexMap for O(1) lookup
-	if index, ok := colorToIndexMap[pixelColor]; ok {
+	// Normalize to color.RGBA for consistent map lookup
+	// currentScreen.At() may return different color types (NRGBA, Gray, etc.)
+	// but colorToIndexMap is keyed by color.RGBA
+	r, g, b, a := pixelColor.RGBA()
+	normalizedColor := color.RGBA{
+		R: uint8(r >> 8),
+		G: uint8(g >> 8),
+		B: uint8(b >> 8),
+		A: uint8(a >> 8),
+	}
+
+	// Use the colorToIndexMap for O(1) lookup (thread-safe)
+	colorToIndexMapMutex.RLock()
+	index, ok := colorToIndexMap[normalizedColor]
+	colorToIndexMapMutex.RUnlock()
+	if ok {
 		return index
 	}
 
@@ -706,6 +732,10 @@ func SetPalette(newPalette []color.Color) {
 		drawPaletteMap = make([]int, len(newPalette))
 		resetDrawPaletteMapInternal()
 	}
+
+	// Rebuild colorToIndexMap to stay in sync with the new palette
+	// This ensures Pget() returns correct color indices
+	buildColorToIndexMap()
 }
 
 // Transparency is controlled using the Palt() function
@@ -750,6 +780,9 @@ func GetPaletteColor(colorIndex int) color.Color {
 func SetPaletteColor(colorIndex int, newColor color.Color) {
 	if colorIndex >= 0 && colorIndex < len(pico8Palette) {
 		pico8Palette[colorIndex] = newColor
+		// Rebuild colorToIndexMap to stay in sync with the modified palette
+		// This ensures Pget() returns correct color indices
+		buildColorToIndexMap()
 	} else {
 		log.Printf("Warning: Attempted to set color at out-of-range index %d. Palette has %d colors.",
 			colorIndex, len(pico8Palette))

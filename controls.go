@@ -62,19 +62,27 @@ const (
 	ButtonPause = ButtonStart
 )
 
-// isSteamDeck checks if the game is running on a Steam Deck by checking the hostname
-func isSteamDeck() bool {
-	// Execute uname --nodename command to get the hostname
-	cmd := exec.Command("uname", "--nodename")
-	output, err := cmd.Output()
-	if err != nil {
-		// Command failed, likely not a Linux system or uname not available
-		return false
-	}
+// Steam Deck detection caching
+var (
+	isSteamDeckResult bool
+	steamDeckOnce     sync.Once
+)
 
-	// Trim whitespace and check if the output is exactly "steamdeck"
-	hostname := strings.TrimSpace(string(output))
-	return hostname == "steamdeck"
+// isSteamDeck checks if the game is running on a Steam Deck by checking the hostname.
+// The result is cached after the first call to avoid repeated shell command execution.
+func isSteamDeck() bool {
+	steamDeckOnce.Do(func() {
+		cmd := exec.Command("uname", "--nodename")
+		output, err := cmd.Output()
+		if err != nil {
+			// Command failed, likely not a Linux system or uname not available
+			isSteamDeckResult = false
+			return
+		}
+		// Trim whitespace and check if the output is exactly "steamdeck"
+		isSteamDeckResult = strings.TrimSpace(string(output)) == "steamdeck"
+	})
+	return isSteamDeckResult
 }
 
 // pico8ButtonToStandard maps PICO-8 button indices to Ebitengine Standard Gamepad Buttons.
