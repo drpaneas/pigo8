@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -113,7 +114,8 @@ var (
 	// SpriteIDMapping maps original sprite IDs to loaded sprite indices for optimization
 	// This allows empty and duplicate sprites to be mapped to existing sprites
 	// Exported so it can be used by sprite lookup functions
-	SpriteIDMapping map[int]int
+	SpriteIDMapping   map[int]int
+	spriteIDMappingMu sync.RWMutex // Protects SpriteIDMapping from concurrent access
 )
 
 // --- Target struct to hold processed sprite info ---
@@ -405,8 +407,10 @@ func finalizeSprites(loadedSprites []spriteInfo, localSpriteIDMapping map[int]in
 	loadedSprites, localSpriteIDMapping, additionalUnique = ensureTransparentSprite(loadedSprites, localSpriteIDMapping, updatePixelCache)
 	uniqueLoaded += additionalUnique
 
-	// Update global sprite ID mapping
+	// Update global sprite ID mapping (thread-safe)
+	spriteIDMappingMu.Lock()
 	SpriteIDMapping = localSpriteIDMapping
+	spriteIDMappingMu.Unlock()
 
 	// Log optimization statistics
 	logOptimizationStats(uniqueLoaded, duplicatesMapped, emptiesMappedTo0)
@@ -540,7 +544,14 @@ func LoadSpritesheet(filename string) error {
 	}
 
 	// Update the package-level currentSprites variable (defined in engine.go)
+	// Thread-safe write to prevent race with sprite lookups
+	currentSpritesMu.Lock()
 	currentSprites = newSprites
-	log.Printf("Successfully loaded and updated spritesheet from %s. %d sprites processed.", filename, len(currentSprites))
+	currentSpritesMu.Unlock()
+
+	// Invalidate sprite ID index so it gets rebuilt with the new sprites
+	InvalidateSpriteIDIndex()
+
+	log.Printf("Successfully loaded and updated spritesheet from %s. %d sprites processed.", filename, len(newSprites))
 	return nil
 }

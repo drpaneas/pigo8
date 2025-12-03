@@ -1,18 +1,45 @@
 package pigo8
 
 import (
-	"container/list"
 	"sync"
-	"time"
+	"sync/atomic"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// LRUCache implements a thread-safe LRU cache with size limits
+// currentFrameTick holds the current frame tick for LRU tracking.
+// Updated once per frame via SetFrameTick() to avoid time.Now() overhead.
+// Uses atomic operations to prevent data races between frame updates and cache reads.
+var currentFrameTick atomic.Int64
+
+// SetFrameTick updates the current frame tick. Call this once per frame
+// (typically at the start of Update or Draw) with ebiten.Tick().
+// Thread-safe via atomic store.
+func SetFrameTick(tick int64) {
+	currentFrameTick.Store(tick)
+}
+
+// getFrameTick returns the current frame tick atomically.
+func getFrameTick() int64 {
+	return currentFrameTick.Load()
+}
+
+// lruEntry represents an entry in the slice-based LRU cache
+type lruEntry[K comparable, V any] struct {
+	key        K
+	value      V
+	lastAccess int64 // Frame tick, not time.Time (zero-cost update)
+	valid      bool  // Whether this slot is in use
+}
+
+// LRUCache implements a thread-safe LRU cache using slices instead of container/list.
+// This eliminates allocations from linked list nodes and time.Now() calls.
 type LRUCache[K comparable, V any] struct {
 	maxSize int
-	items   map[K]*list.Element
-	order   *list.List
+	items   map[K]int        // key -> index in entries slice
+	entries []lruEntry[K, V] // pre-allocated entry storage
+	order   []int            // LRU order (most recent at end)
+	size    int              // current number of valid entries
 	mutex   sync.RWMutex
 
 	// Metrics
@@ -21,19 +48,14 @@ type LRUCache[K comparable, V any] struct {
 	evictions int64
 }
 
-// CacheEntry represents an entry in the LRU cache
-type CacheEntry[K comparable, V any] struct {
-	key        K
-	value      V
-	accessTime time.Time
-}
-
 // NewLRUCache creates a new LRU cache with the specified maximum size
 func NewLRUCache[K comparable, V any](maxSize int) *LRUCache[K, V] {
 	return &LRUCache[K, V]{
 		maxSize: maxSize,
-		items:   make(map[K]*list.Element),
-		order:   list.New(),
+		items:   make(map[K]int, maxSize),
+		entries: make([]lruEntry[K, V], maxSize),
+		order:   make([]int, 0, maxSize),
+		size:    0,
 	}
 }
 
@@ -44,17 +66,30 @@ func (c *LRUCache[K, V]) Get(key K) (V, bool) {
 
 	var zero V
 
-	if elem, exists := c.items[key]; exists {
-		// Move to front (most recently used)
-		c.order.MoveToFront(elem)
-		entry := elem.Value.(*CacheEntry[K, V])
-		entry.accessTime = time.Now()
+	if idx, exists := c.items[key]; exists {
+		// Update access time with frame tick (atomic read for thread safety)
+		c.entries[idx].lastAccess = getFrameTick()
+		// Move to end of order (most recently used)
+		c.moveToEnd(idx)
 		c.hits++
-		return entry.value, true
+		return c.entries[idx].value, true
 	}
 
 	c.misses++
 	return zero, false
+}
+
+// moveToEnd moves the given index to the end of the order slice (most recently used)
+func (c *LRUCache[K, V]) moveToEnd(idx int) {
+	// Find position in order slice
+	for i, orderIdx := range c.order {
+		if orderIdx == idx {
+			// Remove from current position and append to end
+			c.order = append(c.order[:i], c.order[i+1:]...)
+			c.order = append(c.order, idx)
+			return
+		}
+	}
 }
 
 // Put adds or updates a value in the cache
@@ -62,40 +97,41 @@ func (c *LRUCache[K, V]) Put(key K, value V) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	if elem, exists := c.items[key]; exists {
-		// Update existing entry
-		c.order.MoveToFront(elem)
-		entry := elem.Value.(*CacheEntry[K, V])
-		entry.value = value
-		entry.accessTime = time.Now()
+	// Check if key already exists
+	if idx, exists := c.items[key]; exists {
+		// Update existing entry (no allocation)
+		c.entries[idx].value = value
+		c.entries[idx].lastAccess = getFrameTick()
+		c.moveToEnd(idx)
 		return
 	}
 
-	// Add new entry
-	entry := &CacheEntry[K, V]{
-		key:        key,
-		value:      value,
-		accessTime: time.Now(),
-	}
+	// Need to add new entry
+	var idx int
 
-	elem := c.order.PushFront(entry)
-	c.items[key] = elem
-
-	// Evict if necessary
-	if c.order.Len() > c.maxSize {
-		c.evictLRU()
-	}
-}
-
-// evictLRU removes the least recently used item
-func (c *LRUCache[K, V]) evictLRU() {
-	elem := c.order.Back()
-	if elem != nil {
-		c.order.Remove(elem)
-		entry := elem.Value.(*CacheEntry[K, V])
-		delete(c.items, entry.key)
+	if c.size < c.maxSize {
+		// Use next available slot (no allocation, entries pre-allocated)
+		idx = c.size
+		c.size++
+	} else {
+		// Evict least recently used (first in order slice)
+		idx = c.order[0]
+		// Remove old key from items map
+		delete(c.items, c.entries[idx].key)
+		// Remove from front of order
+		c.order = c.order[1:]
 		c.evictions++
 	}
+
+	// Set entry data (reusing slot, no allocation)
+	c.entries[idx] = lruEntry[K, V]{
+		key:        key,
+		value:      value,
+		lastAccess: getFrameTick(),
+		valid:      true,
+	}
+	c.items[key] = idx
+	c.order = append(c.order, idx)
 }
 
 // Clear removes all items from the cache
@@ -103,15 +139,21 @@ func (c *LRUCache[K, V]) Clear() {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	c.items = make(map[K]*list.Element)
-	c.order = list.New()
+	// Reset without reallocating
+	c.items = make(map[K]int, c.maxSize)
+	c.order = c.order[:0] // Reuse slice capacity
+	c.size = 0
+	// Mark all entries as invalid
+	for i := range c.entries {
+		c.entries[i].valid = false
+	}
 }
 
 // Size returns the current number of items in the cache
 func (c *LRUCache[K, V]) Size() int {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
-	return len(c.items)
+	return c.size
 }
 
 // Stats returns cache statistics
@@ -126,7 +168,7 @@ func (c *LRUCache[K, V]) Stats() CacheStats {
 	}
 
 	return CacheStats{
-		Size:      len(c.items),
+		Size:      c.size,
 		MaxSize:   c.maxSize,
 		Hits:      c.hits,
 		Misses:    c.misses,

@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+// ===== Optimization 8: Batched Per-Frame Metrics =====
+// See frame_metrics.go for the per-frame local counters.
+// The record* functions there use atomic ops only when frameStatsActive is true,
+// avoiding overhead when frame stats are disabled.
+
 // SpriteMetrics holds comprehensive sprite system performance metrics
 type SpriteMetrics struct {
 	// Cache performance
@@ -52,6 +57,10 @@ type MetricsCollector struct {
 	hashCollisions    int64
 	hashComputeCount  int64
 
+	// Cache performance counters (accumulated from per-frame metrics)
+	cacheHits   int64
+	cacheMisses int64
+
 	// Timing accumulators
 	totalValidationTime time.Duration
 	totalHashTime       time.Duration
@@ -69,6 +78,7 @@ type MetricsCollector struct {
 var metricsCollector = &MetricsCollector{}
 
 // RecordSpriteRendered increments the sprites rendered counter
+// Note: For hot path, use recordSpriteRendered() (local counter) + FlushMetrics()
 func (m *MetricsCollector) RecordSpriteRendered() {
 	atomic.AddInt64(&m.spritesRendered, 1)
 }
@@ -106,11 +116,10 @@ func (m *MetricsCollector) RecordValidationTime(duration time.Duration) {
 }
 
 // RecordHashTime adds to the total hash computation time
-func (m *MetricsCollector) RecordHashTime(duration time.Duration) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	m.totalHashTime += duration
-	atomic.AddInt64(&m.hashComputeCount, 1)
+// Note: This is now a no-op since we removed time.Now() from hash generation
+func (m *MetricsCollector) RecordHashTime(_ time.Duration) {
+	// Intentionally empty - hash timing removed for performance
+	// Keep method for API compatibility
 }
 
 // RecordRenderTime adds to the total render time
@@ -132,6 +141,8 @@ func (m *MetricsCollector) RecordFrameMetrics(frame *FrameStats, frameTime time.
 	atomic.AddInt64(&m.spritesLoaded, frame.SpritesLoaded)
 	atomic.AddInt64(&m.spritesSkipped, frame.SpritesSkipped)
 	atomic.AddInt64(&m.validationErrors, frame.ValidationErrors)
+	atomic.AddInt64(&m.cacheHits, frame.CacheHits)
+	atomic.AddInt64(&m.cacheMisses, frame.CacheMisses)
 
 	// Record frame timing
 	m.mutex.Lock()
@@ -163,7 +174,7 @@ func GetSpriteMetrics() SpriteMetrics {
 	}
 
 	// Calculate averages
-	var avgRenderTime, avgLoadTime, avgHashTime time.Duration
+	var avgRenderTime, avgLoadTime time.Duration
 
 	renderCount := atomic.LoadInt64(&metricsCollector.renderCount)
 	if renderCount > 0 {
@@ -176,9 +187,6 @@ func GetSpriteMetrics() SpriteMetrics {
 	}
 
 	hashCount := atomic.LoadInt64(&metricsCollector.hashComputeCount)
-	if hashCount > 0 {
-		avgHashTime = metricsCollector.totalHashTime / time.Duration(hashCount)
-	}
 
 	// Calculate deduplication rate
 	loaded := atomic.LoadInt64(&metricsCollector.spritesLoaded)
@@ -203,7 +211,7 @@ func GetSpriteMetrics() SpriteMetrics {
 		ValidationErrors:  atomic.LoadInt64(&metricsCollector.validationErrors),
 		StrictValidations: atomic.LoadInt64(&metricsCollector.strictValidations),
 		HashCollisions:    atomic.LoadInt64(&metricsCollector.hashCollisions),
-		HashComputeTime:   avgHashTime,
+		HashComputeTime:   0, // No longer tracked for performance
 		HashComputeCount:  hashCount,
 		MemoryUsage:       int64(memStats.Alloc),
 		SpriteCount:       len(currentSprites),
@@ -225,6 +233,8 @@ func ResetSpriteMetrics() {
 	atomic.StoreInt64(&metricsCollector.strictValidations, 0)
 	atomic.StoreInt64(&metricsCollector.hashCollisions, 0)
 	atomic.StoreInt64(&metricsCollector.hashComputeCount, 0)
+	atomic.StoreInt64(&metricsCollector.cacheHits, 0)
+	atomic.StoreInt64(&metricsCollector.cacheMisses, 0)
 	atomic.StoreInt64(&metricsCollector.renderCount, 0)
 	atomic.StoreInt64(&metricsCollector.loadCount, 0)
 
@@ -232,6 +242,9 @@ func ResetSpriteMetrics() {
 	metricsCollector.totalHashTime = 0
 	metricsCollector.totalRenderTime = 0
 	metricsCollector.totalLoadTime = 0
+
+	// Also reset local frame counters
+	localCounters = localFrameCounters{}
 }
 
 // ResourceLimits defines resource usage limits for the sprite system

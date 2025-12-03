@@ -275,8 +275,13 @@ func ReloadSprites() error {
 		return fmt.Errorf("failed to reload sprites: %w", err)
 	}
 
-	// Update global sprite reference
+	// Update global sprite reference (thread-safe)
+	currentSpritesMu.Lock()
 	currentSprites = newSprites
+	currentSpritesMu.Unlock()
+
+	// Invalidate sprite ID index so it gets rebuilt with the new sprites
+	InvalidateSpriteIDIndex()
 
 	if isDebugEnabled() {
 		log.Printf("Debug: Hot-reload completed - loaded %d sprites in %v",

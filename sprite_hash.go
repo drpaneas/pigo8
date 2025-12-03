@@ -2,9 +2,7 @@ package pigo8
 
 import (
 	"hash/fnv"
-	"reflect"
 	"sync"
-	"time"
 )
 
 // SpriteHashEntry represents a sprite hash table entry with collision detection
@@ -13,7 +11,7 @@ type SpriteHashEntry struct {
 	Pixels    [][]int   `json:"pixels"`
 	Flags     FlagsData `json:"flags"`
 	SpriteID  int       `json:"sprite_id"`
-	CreatedAt time.Time `json:"created_at"`
+	CreatedAt int64     `json:"created_at"` // Frame tick instead of time.Time
 }
 
 // SpriteHashTable manages sprite hashes with collision detection
@@ -32,15 +30,11 @@ func NewSpriteHashTable() *SpriteHashTable {
 }
 
 // generateOptimizedSpriteHashWithTiming creates a hash with timing metrics
-func generateOptimizedSpriteHashWithTiming(pixels [][]int, flags FlagsData) (uint64, time.Duration) {
-	start := time.Now()
+// Note: Removed time.Now() overhead - uses frame tick for metrics if needed
+func generateOptimizedSpriteHashWithTiming(pixels [][]int, flags FlagsData) (uint64, int64) {
 	hash := generateOptimizedSpriteHashInternal(pixels, flags)
-	duration := time.Since(start)
-
-	// Record metrics
-	metricsCollector.RecordHashTime(duration)
-
-	return hash, duration
+	// Return current frame tick instead of duration (atomic read for thread safety)
+	return hash, getFrameTick()
 }
 
 // generateOptimizedSpriteHashInternal is the internal hash generation function.
@@ -73,7 +67,7 @@ func generateOptimizedSpriteHashInternal(pixels [][]int, flags FlagsData) uint64
 	}
 	hasher.Write(flagBytes[:])
 
-	// Write individual flags as bytes
+	// Write individual flags as bytes (no reflection, no allocation)
 	for _, flag := range flags.Individual {
 		if flag {
 			hasher.Write([]byte{1})
@@ -87,7 +81,7 @@ func generateOptimizedSpriteHashInternal(pixels [][]int, flags FlagsData) uint64
 
 // AddEntry adds a sprite hash entry with collision detection
 func (h *SpriteHashTable) AddEntry(pixels [][]int, flags FlagsData, spriteID int) (uint64, bool) {
-	hash, _ := generateOptimizedSpriteHashWithTiming(pixels, flags)
+	hash, tick := generateOptimizedSpriteHashWithTiming(pixels, flags)
 
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -113,7 +107,7 @@ func (h *SpriteHashTable) AddEntry(pixels [][]int, flags FlagsData, spriteID int
 			Pixels:    pixels,
 			Flags:     flags,
 			SpriteID:  spriteID,
-			CreatedAt: time.Now(),
+			CreatedAt: tick, // Frame tick instead of time.Now()
 		}
 		return hash, false
 	}
@@ -141,20 +135,27 @@ func (h *SpriteHashTable) AddEntry(pixels [][]int, flags FlagsData, spriteID int
 		Pixels:    pixels,
 		Flags:     flags,
 		SpriteID:  spriteID,
-		CreatedAt: time.Now(),
+		CreatedAt: tick, // Frame tick instead of time.Now()
 	}
 	return collisionHash, false
 }
 
 // isActualDuplicate performs deep comparison to detect true duplicates vs hash collisions
+// Optimization 5: Direct comparison instead of reflect.DeepEqual
 func (h *SpriteHashTable) isActualDuplicate(existing *SpriteHashEntry, pixels [][]int, flags FlagsData) bool {
 	// Compare flags first (faster)
 	if existing.Flags.Bitfield != flags.Bitfield {
 		return false
 	}
 
-	if !reflect.DeepEqual(existing.Flags.Individual, flags.Individual) {
+	// Direct slice comparison (avoids reflect.DeepEqual allocation)
+	if len(existing.Flags.Individual) != len(flags.Individual) {
 		return false
+	}
+	for i, v := range existing.Flags.Individual {
+		if v != flags.Individual[i] {
+			return false
+		}
 	}
 
 	// Compare pixel dimensions

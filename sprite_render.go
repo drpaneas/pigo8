@@ -3,9 +3,151 @@ package pigo8
 import (
 	"log"
 	"math"
+	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
+
+// ===== Optimization 3: DrawImageOptions Pool =====
+// Pool DrawImageOptions to avoid per-draw allocations
+
+type drawOptionsPool struct {
+	pool []*ebiten.DrawImageOptions
+	mu   sync.Mutex
+}
+
+var theDrawOptionsPool drawOptionsPool
+
+func (p *drawOptionsPool) get() *ebiten.DrawImageOptions {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if len(p.pool) == 0 {
+		return &ebiten.DrawImageOptions{}
+	}
+	v := p.pool[len(p.pool)-1]
+	p.pool[len(p.pool)-1] = nil
+	p.pool = p.pool[:len(p.pool)-1]
+	// Reset to clean state
+	v.GeoM.Reset()
+	v.ColorScale.Reset()
+	return v
+}
+
+func (p *drawOptionsPool) put(v *ebiten.DrawImageOptions) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if len(p.pool) >= 256 { // Limit pool size
+		return
+	}
+	p.pool = append(p.pool, v)
+}
+
+// ===== Optimization 4: Sprite ID Map =====
+// Build sprite ID -> index map once when sprites load
+
+var (
+	spriteIDToIndex    map[int]int  // Sprite ID -> slice index
+	indexedSprites     []spriteInfo // The sprites snapshot this index was built from
+	spriteIDIndexBuilt bool
+	spriteIDIndexMu    sync.RWMutex
+)
+
+// buildSpriteIDIndexLocked builds the sprite ID to index map.
+// Caller must hold spriteIDIndexMu write lock.
+// Caller must provide sprites snapshot to avoid lock ordering issues.
+// The sprites snapshot is stored alongside the index to ensure consistency.
+func buildSpriteIDIndexLocked(sprites []spriteInfo) {
+	spriteIDToIndex = make(map[int]int, len(sprites))
+	for i := range sprites {
+		spriteIDToIndex[sprites[i].ID] = i
+	}
+	// Store the sprites snapshot that this index was built from
+	// This ensures indices always match the sprite array they reference
+	indexedSprites = sprites
+	spriteIDIndexBuilt = true
+}
+
+// ensureSpriteIDIndexBuilt ensures the index is built, rebuilding if necessary.
+// Returns the sprites snapshot that the index was built from, ensuring consistency.
+// Returns with the read lock held - caller must call spriteIDIndexMu.RUnlock().
+// Lock ordering: currentSpritesMu -> spriteIDIndexMu (prevents deadlock with ReloadSprites)
+func ensureSpriteIDIndexBuilt() []spriteInfo {
+	for {
+		spriteIDIndexMu.RLock()
+		if spriteIDIndexBuilt && spriteIDToIndex != nil && indexedSprites != nil {
+			// Index is valid, return the sprites it was built from
+			// This ensures the indices match the sprite array
+			return indexedSprites
+		}
+		// Need to rebuild - release read lock first
+		spriteIDIndexMu.RUnlock()
+
+		// IMPORTANT: Acquire currentSpritesMu BEFORE spriteIDIndexMu to prevent deadlock.
+		// Lock ordering must be: currentSpritesMu -> spriteIDIndexMu
+		// This matches ReloadSprites() which does: currentSpritesMu.Lock() -> InvalidateSpriteIDIndex()
+		currentSpritesMu.RLock()
+		sprites := currentSprites
+		currentSpritesMu.RUnlock()
+
+		spriteIDIndexMu.Lock()
+		// Double-check after acquiring write lock (another thread may have built it)
+		if !spriteIDIndexBuilt || spriteIDToIndex == nil {
+			buildSpriteIDIndexLocked(sprites)
+		}
+		spriteIDIndexMu.Unlock()
+
+		// Loop back to re-verify with read lock.
+		// This handles the case where another thread invalidated the index
+		// between our Unlock() and RLock() calls.
+	}
+}
+
+// InvalidateSpriteIDIndex invalidates the sprite ID index (call when sprites change)
+func InvalidateSpriteIDIndex() {
+	spriteIDIndexMu.Lock()
+	defer spriteIDIndexMu.Unlock()
+	spriteIDIndexBuilt = false
+	spriteIDToIndex = nil
+	indexedSprites = nil
+}
+
+// ===== Optimization 7: Pixel Buffer Pool =====
+// Pool pixel buffers to avoid per-sprite allocations
+// Uses *[]byte instead of []byte to avoid allocation when boxing slice header (SA6002)
+
+var pixelBufferPool = sync.Pool{
+	New: func() interface{} {
+		// 8x8 sprite = 256 bytes (most common for PICO-8)
+		buf := make([]byte, 8*8*4)
+		return &buf
+	},
+}
+
+func getPixelBuffer(size int) []byte {
+	bufPtr := pixelBufferPool.Get().(*[]byte)
+	buf := *bufPtr
+	if cap(buf) >= size {
+		buf = buf[:size]
+		// Clear buffer to prevent stale data from previous renders
+		// This is critical because transparent pixels are skipped (not written)
+		// and would otherwise show garbage data from previous pool uses
+		for i := range buf {
+			buf[i] = 0
+		}
+		return buf
+	}
+	// Rare: need larger buffer, allocate new (already zeroed by make)
+	return make([]byte, size)
+}
+
+func putPixelBuffer(buf []byte) {
+	// Only pool common sizes to avoid memory bloat
+	if cap(buf) <= 32*32*4 {
+		pixelBufferPool.Put(&buf)
+	}
+}
 
 // Spr draws a potentially fractional rectangular region of sprites,
 // using the internal `currentScreen` and `currentSprites` variables.
@@ -113,67 +255,70 @@ func Spr[SN Number, X Number, Y Number](spriteNumber SN, x X, y Y, options ...an
 	destWidth := spriteWidth * scaleW
 	destHeight := spriteHeight * scaleH
 
-	// Setup drawing options
+	// Setup drawing options (using pool)
 	opts := setupDrawOptions(screenFx, screenFy, destWidth, destHeight, scaleW, scaleH, flipX, flipY)
+	defer theDrawOptionsPool.put(opts)
 
 	// Draw the sprite
 	currentScreen.DrawImage(tempImage, opts)
 }
 
-// findSpriteByID finds a sprite by its ID using sprite mapping optimization
+// findSpriteByID finds a sprite by its ID using O(1) map lookup
 func findSpriteByID(spriteNumInt int) *spriteInfo {
-	// Handle sprite ID 0 as transparent sentinel - always allow it even if not present
+	// Ensure index is built and get the sprites snapshot it was built from.
+	// This guarantees consistency: the indices in spriteIDToIndex always
+	// correspond to the sprites array we use, preventing stale snapshot bugs.
+	sprites := ensureSpriteIDIndexBuilt()
+	defer spriteIDIndexMu.RUnlock()
+
+	// Handle sprite ID 0 as transparent sentinel
 	if spriteNumInt == 0 {
-		// Try to find sprite 0 first
-		for i := range currentSprites {
-			if currentSprites[i].ID == 0 {
-				return &currentSprites[i]
+		if idx, ok := spriteIDToIndex[0]; ok {
+			if idx >= 0 && idx < len(sprites) {
+				return &sprites[idx]
 			}
 		}
-		// If sprite 0 doesn't exist, return nil (safe no-op)
-		return nil
+		return nil // Safe no-op if sprite 0 not present
 	}
 
-	// Use sprite ID mapping if available
-	if SpriteIDMapping != nil {
-		if mappedIndex, exists := SpriteIDMapping[spriteNumInt]; exists {
+	// Use sprite ID mapping if available (for deduplication)
+	// Thread-safe read access to SpriteIDMapping
+	spriteIDMappingMu.RLock()
+	mapping := SpriteIDMapping
+	spriteIDMappingMu.RUnlock()
+
+	if mapping != nil {
+		if mappedIndex, exists := mapping[spriteNumInt]; exists {
 			// Handle mapping to 0 (transparent)
 			if mappedIndex == 0 {
-				// Find sprite with ID 0 or return nil for safe no-op
-				for i := range currentSprites {
-					if currentSprites[i].ID == 0 {
-						return &currentSprites[i]
+				if idx, ok := spriteIDToIndex[0]; ok {
+					if idx >= 0 && idx < len(sprites) {
+						return &sprites[idx]
 					}
 				}
-				return nil // Safe no-op if sprite 0 not present
+				return nil
 			}
-
 			// Return the mapped sprite by index
-			if mappedIndex >= 0 && mappedIndex < len(currentSprites) {
-				return &currentSprites[mappedIndex]
+			if mappedIndex >= 0 && mappedIndex < len(sprites) {
+				return &sprites[mappedIndex]
 			}
 		}
-		// If not found in mapping, treat as non-existent (return nil for safe no-op)
-		return nil
+		return nil // Not found in mapping
 	}
 
-	// Fallback to original behavior if no mapping is available
-	var spriteInfo *spriteInfo
-	for i := range currentSprites {
-		if currentSprites[i].ID == spriteNumInt {
-			spriteInfo = &currentSprites[i]
-			break
+	// O(1) lookup via spriteIDToIndex map
+	if idx, ok := spriteIDToIndex[spriteNumInt]; ok {
+		if idx >= 0 && idx < len(sprites) {
+			return &sprites[idx]
 		}
 	}
 
-	if spriteInfo == nil {
-		// If we can't find a sprite with the exact ID, try to use the array index as a fallback
-		if spriteNumInt >= 0 && spriteNumInt < len(currentSprites) {
-			spriteInfo = &currentSprites[spriteNumInt]
-		}
+	// Fallback: try array index directly (for backward compatibility)
+	if spriteNumInt >= 0 && spriteNumInt < len(sprites) {
+		return &sprites[spriteNumInt]
 	}
 
-	return spriteInfo
+	return nil
 }
 
 // parseSprOptions parses the optional arguments for the Spr function
@@ -251,12 +396,16 @@ func createTransparentSpriteImage(tileImage *ebiten.Image) *ebiten.Image {
 	height := tileImage.Bounds().Dy()
 	tempImage := ebiten.NewImage(width, height)
 
-	// Get all pixels from source image in batch
-	sourcePixels := make([]byte, width*height*4)
-	tileImage.ReadPixels(sourcePixels)
+	// Get pixel buffers from pool (Optimization 7)
+	size := width * height * 4
+	sourcePixels := getPixelBuffer(size)
+	defer putPixelBuffer(sourcePixels)
 
-	// Create destination pixel buffer
-	destPixels := make([]byte, width*height*4)
+	destPixels := getPixelBuffer(size)
+	defer putPixelBuffer(destPixels) // Return to pool - WritePixels copies data
+
+	// Read source pixels
+	tileImage.ReadPixels(sourcePixels)
 
 	// Process pixels in memory (much faster than individual At()/Set() calls)
 	for i := 0; i < len(sourcePixels); i += 4 {
@@ -275,7 +424,7 @@ func createTransparentSpriteImage(tileImage *ebiten.Image) *ebiten.Image {
 		destPixels[i+3] = a // Alpha
 	}
 
-	// Upload all pixels to GPU in one operation
+	// Upload all pixels to GPU in one operation (copies data, buffer can be reused)
 	tempImage.WritePixels(destPixels)
 
 	// Cache the result
@@ -285,9 +434,10 @@ func createTransparentSpriteImage(tileImage *ebiten.Image) *ebiten.Image {
 }
 
 // setupDrawOptions creates and configures the drawing options for a sprite
+// Uses pooled DrawImageOptions to avoid allocations
 func setupDrawOptions(fx, fy, destWidth, destHeight, scaleW, scaleH float64, flipX, flipY bool) *ebiten.DrawImageOptions {
-	// Create drawing options
-	opts := &ebiten.DrawImageOptions{}
+	// Get from pool instead of allocating
+	opts := theDrawOptionsPool.get()
 
 	// Apply scaling
 	if scaleW != 1.0 || scaleH != 1.0 {
@@ -429,8 +579,10 @@ func createSpriteSourceImage(sourceX, sourceY, sourceWidth, sourceHeight int) *e
 	// Clear the image with transparent color
 	sourceImage.Fill(colorRGBATransparent)
 
-	// Create pixel buffer for batch operations
-	pixels := make([]byte, sourceWidth*sourceHeight*4)
+	// Get pixel buffer from pool (Optimization 7)
+	size := sourceWidth * sourceHeight * 4
+	pixels := getPixelBuffer(size)
+	defer putPixelBuffer(pixels) // Return to pool - WritePixels copies data
 
 	// Process all pixels in batch
 	for y := 0; y < sourceHeight; y++ {
@@ -456,7 +608,7 @@ func createSpriteSourceImage(sourceX, sourceY, sourceWidth, sourceHeight int) *e
 		}
 	}
 
-	// Upload all pixels to GPU in one operation
+	// Upload all pixels to GPU in one operation (copies data, buffer can be reused)
 	sourceImage.WritePixels(pixels)
 
 	return sourceImage
@@ -534,8 +686,9 @@ func Sspr[SX Number, SY Number, SW Number, SH Number, DX Number, DY Number](sx S
 	// Create a temporary image for the source region
 	sourceImage := createSpriteSourceImage(sourceX, sourceY, sourceWidth, sourceHeight)
 
-	// Set up drawing options
-	op := &ebiten.DrawImageOptions{}
+	// Get from pool instead of allocating (Optimization 3)
+	op := theDrawOptionsPool.get()
+	defer theDrawOptionsPool.put(op)
 
 	// Apply camera offset to the intended top-left drawing position (dx, dy)
 	screenDrawX, screenDrawY := applyCameraOffset(destX, destY)

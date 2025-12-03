@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"sync"
 
 	"github.com/drpaneas/pigo8/network"
 	"github.com/hajimehoshi/ebiten/v2"
@@ -76,6 +77,7 @@ var (
 var (
 	currentScreen    *ebiten.Image // Internal: Current screen image
 	currentSprites   []spriteInfo  // Internal: Loaded sprites
+	currentSpritesMu sync.RWMutex  // Protects currentSprites from concurrent access
 	currentDrawColor int           // Internal: Current draw color (0-15)
 	elapsedTime      float64       // Internal: Time elapsed since game start (in seconds)
 	timeIncrement    float64       // Internal: Amount to increment time each update
@@ -159,6 +161,11 @@ func (g *game) ResetGame() {
 
 // Update implements ebiten.Game.
 func (g *game) Update() error {
+	// Increment frame counter and update cache tick (Optimization 1: avoids time.Now())
+	// IncrementFrameCounter() is called unconditionally to ensure LRU cache works
+	// even when frame stats are disabled
+	SetFrameTick(IncrementFrameCounter())
+
 	if !g.initialized {
 		log.Println("Cartridge Initializing...")
 		// Log initial memory usage
@@ -294,6 +301,9 @@ func (g *game) Draw(screen *ebiten.Image) {
 		flushPixelBuffer()
 		flushSpriteModifications()
 	}
+
+	// Flush frame metrics (Optimization 8: batch atomic ops)
+	FlushFrameMetrics()
 
 	// Mark that the first frame has been drawn
 	if !g.firstFrameDrawn {
