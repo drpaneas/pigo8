@@ -11,6 +11,7 @@
 - [Palette Management](palette-management.md)
 - [Transparency](transparency.md)
 - [PIGO8 Editor](editor.md)
+- [Web Export](web_export.md)
 - [Custom Functions](custom_functions.md)
   - [Color Collision Detection](color_collision.md)
   - [Map Collision Detection](map_collision.md)

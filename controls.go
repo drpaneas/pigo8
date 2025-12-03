@@ -2,8 +2,6 @@
 package pigo8
 
 import (
-	"os/exec"
-	"strings"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -61,29 +59,6 @@ const (
 	// Alias for pause button (same as START)
 	ButtonPause = ButtonStart
 )
-
-// Steam Deck detection caching
-var (
-	isSteamDeckResult bool
-	steamDeckOnce     sync.Once
-)
-
-// isSteamDeck checks if the game is running on a Steam Deck by checking the hostname.
-// The result is cached after the first call to avoid repeated shell command execution.
-func isSteamDeck() bool {
-	steamDeckOnce.Do(func() {
-		cmd := exec.Command("uname", "--nodename")
-		output, err := cmd.Output()
-		if err != nil {
-			// Command failed, likely not a Linux system or uname not available
-			isSteamDeckResult = false
-			return
-		}
-		// Trim whitespace and check if the output is exactly "steamdeck"
-		isSteamDeckResult = strings.TrimSpace(string(output)) == "steamdeck"
-	})
-	return isSteamDeckResult
-}
 
 // pico8ButtonToStandard maps PICO-8 button indices to Ebitengine Standard Gamepad Buttons.
 var pico8ButtonToStandard map[int]ebiten.StandardGamepadButton
@@ -420,6 +395,11 @@ func updateInputCache() {
 
 // checkButtonState checks the actual button state (uncached)
 func checkButtonState(buttonIndex int) bool {
+	// Check virtual buttons first (for web platform touch/click input)
+	if getVirtualButtonState(buttonIndex) {
+		return true
+	}
+
 	// Handle mouse buttons
 	if isMouseButton(buttonIndex) {
 		return handleMouseInput(buttonIndex)

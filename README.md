@@ -27,6 +27,7 @@ It is a clean-room reimplementation for educational and creative purposes.
 * Advanced Palette: Dynamic color palette management with alpha transparency support.
 * Fade System: Frame-by-frame fade transitions for smooth scene changes and effects.
 * Enhanced Sprite Editing: Multi-sprite editing capabilities with different grid sizes.
+* **Web Export**: Compile games to WebAssembly and play them in the browser with a retro Game Boy-style UI and virtual controls.
 
 ### Basic Game Structure
 
@@ -99,6 +100,28 @@ func main() {
 ```
 
 And run `go generate` to generate the embedded files.
+
+### Web Export (Play in Browser)
+
+Export your game to WebAssembly for browser play with a retro Game Boy-style UI:
+
+```bash
+# Export your game to the web
+go run github.com/drpaneas/pigo8/cmd/webexport -game ./your-game -o ./dist
+
+# Or with a custom title
+go run github.com/drpaneas/pigo8/cmd/webexport -game ./your-game -o ./dist -title "My Awesome Game"
+
+# Start a local test server automatically
+go run github.com/drpaneas/pigo8/cmd/webexport -game ./your-game -o ./dist -serve
+```
+
+The web export generates:
+- `game.wasm` - Your compiled game
+- `index.html` - A responsive page with Game Boy-style virtual controls
+- `wasm_exec.js` - Go's WebAssembly runtime
+
+Virtual controls work on both desktop (mouse) and mobile (touch), with haptic feedback on supported devices.
 
 ## Installation
 

@@ -2,6 +2,12 @@
 
 ![Game Boy DMG-01](https://upload.wikimedia.org/wikipedia/commons/7/7c/Game-Boy-FL.jpg)
 
+## 🎮 Play Online
+
+**[▶️ Play Game Boy Demo in your browser](https://drpaneas.github.io/pigo8/gameboy/)**
+
+---
+
 Get ready to dive into the nostalgic world of Game Boy development, powered by PIGO-8! This template lets you create authentic Game Boy-style games using the beloved PICO-8 workflow, but with the added power of Go and PIGO-8's extended feature set.
 
 ## 🌟 Features

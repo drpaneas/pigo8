@@ -51,6 +51,18 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Build with mdBook
         run: mdbook build
+      - name: Copy web game exports to book output
+        run: |
+          # Copy web-exported games to the book output directory
+          # These are pre-built WASM games that can be played in the browser
+          for dir in docs/pong docs/animation docs/gameboy docs/hello_world docs/map docs/spritesheet docs/bigSprite docs/flashlight docs/map_layers; do
+            if [ -d "$dir" ] && [ -f "$dir/game.wasm" ]; then
+              dirname=$(basename "$dir")
+              mkdir -p "book/$dirname"
+              cp -r "$dir"/* "book/$dirname/"
+              echo "Copied $dir to book/$dirname"
+            fi
+          done
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

@@ -168,7 +168,7 @@ func collide(b Ball, p Paddle) bool {
 func main() {
 	settings := p8.NewSettings()
 	settings.TargetFPS = 60
-	settings.Fullscreen = true
+	settings.WindowTitle = "PIGO-8 Pong"
 	p8.InsertGame(&Game{})
 	p8.PlayGameWith(settings)
 }
