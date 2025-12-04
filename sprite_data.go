@@ -44,72 +44,75 @@ func Sget[X Number, Y Number](x X, y Y) int {
 	localX := px % 8 // X position within the sprite (0-7)
 	localY := py % 8 // Y position within the sprite (0-7)
 
-	// Find the sprite with the matching ID
-	for _, sprite := range currentSprites {
-		if sprite.ID == spriteCellID {
-			// Try to get pixel from cache first (batch reading optimization)
-			spritePixelCacheMutex.RLock()
-			if spriteCacheValid[spriteCellID] {
-				if pixels, cacheSize, found := spritePixelCacheManager.Get(spriteCellID); found && cacheSize > 0 {
-					offset := (localY*8 + localX) * 4
-					if offset+3 < len(pixels) {
-						r := pixels[offset]
-						g := pixels[offset+1]
-						b := pixels[offset+2]
-						a := pixels[offset+3]
-						spritePixelCacheMutex.RUnlock()
+	// Use sprite ID mapping to find the actual sprite index (handles duplicates/empty sprites)
+	spriteIDMappingMu.RLock()
+	mappedIndex, hasMapped := SpriteIDMapping[spriteCellID]
+	spriteIDMappingMu.RUnlock()
 
-						// Create color from RGBA values
-						pixelColor := color.RGBA{r, g, b, a}
+	if hasMapped && mappedIndex >= 0 && mappedIndex < len(currentSprites) {
+		sprite := currentSprites[mappedIndex]
+		// Try to get pixel from cache first (batch reading optimization)
+		spritePixelCacheMutex.RLock()
+		if spriteCacheValid[spriteCellID] {
+			if pixels, cacheSize, found := spritePixelCacheManager.Get(spriteCellID); found && cacheSize > 0 {
+				offset := (localY*8 + localX) * 4
+				if offset+3 < len(pixels) {
+					r := pixels[offset]
+					g := pixels[offset+1]
+					b := pixels[offset+2]
+					a := pixels[offset+3]
+					spritePixelCacheMutex.RUnlock()
 
-						// Use colorToIndexMap for O(1) lookup instead of linear search (thread-safe)
-						colorToIndexMapMutex.RLock()
-						index, ok := colorToIndexMap[pixelColor]
-						colorToIndexMapMutex.RUnlock()
-						if ok {
-							recordCacheHit()
-							return index
-						}
-						// Cache lookup failed - fall through to fallback path
-						// instead of returning 0 immediately (handles edge cases
-						// like cache/palette mismatch or color space issues)
-						recordCacheMiss()
-						goto fallback
+					// Create color from RGBA values
+					pixelColor := color.RGBA{r, g, b, a}
+
+					// Use colorToIndexMap for O(1) lookup instead of linear search (thread-safe)
+					colorToIndexMapMutex.RLock()
+					index, ok := colorToIndexMap[pixelColor]
+					colorToIndexMapMutex.RUnlock()
+					if ok {
+						recordCacheHit()
+						return index
 					}
+					// Cache lookup failed - fall through to fallback path
+					// instead of returning 0 immediately (handles edge cases
+					// like cache/palette mismatch or color space issues)
+					recordCacheMiss()
+					goto fallback
 				}
 			}
-			spritePixelCacheMutex.RUnlock()
-
-			recordCacheMiss()
-		fallback:
-
-			// Fallback to individual pixel read if cache is not available
-			pixelColor := sprite.Image.At(localX, localY)
-
-			// Normalize to color.RGBA for consistent map lookup
-			// sprite.Image.At() may return different color types (NRGBA, Gray, etc.)
-			// but colorToIndexMap is keyed by color.RGBA
-			r, g, b, a := pixelColor.RGBA()
-			normalizedColor := color.RGBA{
-				R: uint8(r >> 8),
-				G: uint8(g >> 8),
-				B: uint8(b >> 8),
-				A: uint8(a >> 8),
-			}
-
-			// Use colorToIndexMap for O(1) lookup instead of linear search (thread-safe)
-			colorToIndexMapMutex.RLock()
-			index, ok := colorToIndexMap[normalizedColor]
-			colorToIndexMapMutex.RUnlock()
-			if ok {
-				return index
-			}
-			// If no matching color found, return 0 (transparent/black)
-			return 0
 		}
+		spritePixelCacheMutex.RUnlock()
+
+		recordCacheMiss()
+	fallback:
+
+		// Fallback to individual pixel read if cache is not available
+		pixelColor := sprite.Image.At(localX, localY)
+
+		// Normalize to color.RGBA for consistent map lookup
+		// sprite.Image.At() may return different color types (NRGBA, Gray, etc.)
+		// but colorToIndexMap is keyed by color.RGBA
+		r, g, b, a := pixelColor.RGBA()
+		normalizedColor := color.RGBA{
+			R: uint8(r >> 8),
+			G: uint8(g >> 8),
+			B: uint8(b >> 8),
+			A: uint8(a >> 8),
+		}
+
+		// Use colorToIndexMap for O(1) lookup instead of linear search (thread-safe)
+		colorToIndexMapMutex.RLock()
+		index, ok := colorToIndexMap[normalizedColor]
+		colorToIndexMapMutex.RUnlock()
+		if ok {
+			return index
+		}
+		// If no matching color found, return 0 (transparent/black)
+		return 0
 	}
 
-	// If no matching pixel was found, return 0
+	// If no mapping found, return 0 (transparent)
 	return 0
 }
 
