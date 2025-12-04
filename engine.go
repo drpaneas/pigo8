@@ -244,10 +244,9 @@ func (g *game) Update() error {
 // Draw implements ebiten.Game.
 func (g *game) Draw(screen *ebiten.Image) {
 	// Set the current screen for drawing
+	// NOTE: We keep currentScreen valid across frames so that Pget()/ColorCollision()
+	// can read the previous frame's pixels during Update(). This is how PICO-8 works.
 	currentScreen = screen
-	// Invalidate currentScreen after Draw completes to catch misuse
-	// (e.g., goroutines trying to draw outside of the Draw() context)
-	defer func() { currentScreen = nil }()
 
 	// Initialize pixel buffer if needed
 	if pixelBuffer == nil {

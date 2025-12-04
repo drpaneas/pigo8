@@ -73,7 +73,6 @@ func (g *Game) Draw() {
 	p8.Line(75, 70, 35, 70, g.player.collisionColor)
 	p8.Line(36, 70, 55, 80, g.player.collisionColor)
 	p8.Line(55, 80, 90, 80, g.player.collisionColor)
-
 }
 
 func main() {

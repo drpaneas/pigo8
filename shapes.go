@@ -150,6 +150,9 @@ func Rect[X1 Number, Y1 Number, X2 Number, Y2 Number](x1 X1, y1 Y1, x2 X2, y2 Y2
 	// Right vertical line (height adjusted to avoid drawing corners twice)
 	vector.DrawFilledRect(currentScreen, rightX, topY+1, 1, rectH-2, actualColor, false)
 
+	// Mark shadow buffer as dirty so Pget() will sync from GPU
+	MarkShadowBufferDirtyFromSprite()
+
 	/* // Original StrokeRect implementation - might clip at edges
 	strokeWidth := float32(1.0) // PICO-8 rect outline is 1 pixel thick
 	vector.StrokeRect(
@@ -228,6 +231,9 @@ func Rectfill[X1 Number, Y1 Number, X2 Number, Y2 Number](x1 X1, y1 Y1, x2 X2, y
 		actualColor,
 		false, // No anti-aliasing
 	)
+
+	// Mark shadow buffer as dirty so Pget() will sync from GPU
+	MarkShadowBufferDirtyFromSprite()
 }
 
 // parseLineArgs parses common arguments for Line function.
@@ -291,6 +297,9 @@ func Line[X1 Number, Y1 Number, X2 Number, Y2 Number](x1 X1, y1 Y1, x2 X2, y2 Y2
 		actualColor,
 		false, // No anti-aliasing to match PICO-8's pixel-perfect style
 	)
+
+	// Mark shadow buffer as dirty so Pget() will sync from GPU
+	MarkShadowBufferDirtyFromSprite()
 }
 
 // parseCircArgs parses common arguments for Circ and Circfill.
@@ -353,6 +362,9 @@ func Circ[X Number, Y Number, R Number](x X, y Y, radius R, options ...interface
 		actualColor,
 		false, // No anti-aliasing to match PICO-8's pixel-perfect style
 	)
+
+	// Mark shadow buffer as dirty so Pget() will sync from GPU
+	MarkShadowBufferDirtyFromSprite()
 }
 
 // Circfill draws a filled circle.
@@ -401,4 +413,7 @@ func Circfill[X Number, Y Number, R Number](x X, y Y, radius R, options ...inter
 		actualColor,
 		false, // No anti-aliasing to match PICO-8's pixel-perfect style
 	)
+
+	// Mark shadow buffer as dirty so Pget() will sync from GPU
+	MarkShadowBufferDirtyFromSprite()
 }
