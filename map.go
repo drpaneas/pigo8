@@ -519,10 +519,22 @@ func drawMapRegion(mapX, mapY, sx, sy, wTiles, hTiles, layers int) {
 
 				tileImg := getSpriteImage(spriteID) // GetSpriteImage handles nil if sprite not found
 				if tileImg != nil {
-					opts := &ebiten.DrawImageOptions{}
-					opts.Filter = ebiten.FilterNearest
-					opts.GeoM.Translate(float64(tx*8), float64(ty*8))
-					mapCacheImage.DrawImage(tileImg, opts)
+					// Use transparency shader for PICO-8 style color-key transparency
+					// (black pixels rendered as transparent)
+					shader := getTransparencyShader()
+					if shader != nil {
+						var shaderOpts ebiten.DrawRectShaderOptions
+						shaderOpts.GeoM.Translate(float64(tx*8), float64(ty*8))
+						shaderOpts.Images[0] = tileImg
+						bounds := tileImg.Bounds()
+						mapCacheImage.DrawRectShader(bounds.Dx(), bounds.Dy(), shader, &shaderOpts)
+					} else {
+						// Fallback to regular DrawImage if shader unavailable
+						opts := &ebiten.DrawImageOptions{}
+						opts.Filter = ebiten.FilterNearest
+						opts.GeoM.Translate(float64(tx*8), float64(ty*8))
+						mapCacheImage.DrawImage(tileImg, opts)
+					}
 				}
 			}
 		}
@@ -555,6 +567,9 @@ func drawMapRegion(mapX, mapY, sx, sy, wTiles, hTiles, layers int) {
 	finalScreenY := float64(sy) - cameraY
 	drawOpts.GeoM.Translate(finalScreenX, finalScreenY)
 	screenToDrawOn.DrawImage(mapCacheImage, drawOpts)
+
+	// Mark shadow buffer dirty since we drew to the screen
+	MarkShadowBufferDirtyFromSprite()
 }
 
 // loadRegionIntoActiveBuffer loads the specified region of the world map into the active tile buffer.

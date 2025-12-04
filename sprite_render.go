@@ -62,6 +62,35 @@ var (
 	spriteIDIndexMu    sync.RWMutex
 )
 
+// ===== Sspr Source Image Cache =====
+// Cache for Sspr() source images to prevent memory leaks from creating
+// new ebiten.Image on every call.
+
+// ssprCacheKey uniquely identifies an Sspr source region
+type ssprCacheKey struct {
+	sx, sy, sw, sh int
+}
+
+// ssprCache caches Sspr source images to prevent memory leaks
+// Size is configurable via Settings.SsprCacheSize
+var ssprCache *LRUCache[ssprCacheKey, *ebiten.Image]
+var ssprCacheOnce sync.Once
+
+// getSsprCache returns the Sspr cache, initializing it if needed
+func getSsprCache() *LRUCache[ssprCacheKey, *ebiten.Image] {
+	ssprCacheOnce.Do(func() {
+		ssprCache = NewLRUCache[ssprCacheKey, *ebiten.Image](configuredSsprCacheSize)
+	})
+	return ssprCache
+}
+
+// ClearSsprCache clears the Sspr source image cache (useful for memory management)
+func ClearSsprCache() {
+	if ssprCache != nil {
+		ssprCache.Clear()
+	}
+}
+
 // buildSpriteIDIndexLocked builds the sprite ID to index map.
 // Caller must hold spriteIDIndexMu write lock.
 // Caller must provide sprites snapshot to avoid lock ordering issues.
@@ -77,12 +106,28 @@ func buildSpriteIDIndexLocked(sprites []spriteInfo) {
 	spriteIDIndexBuilt = true
 }
 
+// maxSpriteIndexBuildRetries is the maximum number of retry attempts for building
+// the sprite ID index. This prevents infinite loops in pathological cases.
+const maxSpriteIndexBuildRetries = 100
+
 // ensureSpriteIDIndexBuilt ensures the index is built, rebuilding if necessary.
 // Returns the sprites snapshot that the index was built from, ensuring consistency.
 // Returns with the read lock held - caller must call spriteIDIndexMu.RUnlock().
 // Lock ordering: currentSpritesMu -> spriteIDIndexMu (prevents deadlock with ReloadSprites)
+//
+// SAFETY: Includes max-retry counter to prevent infinite loops in edge cases.
 func ensureSpriteIDIndexBuilt() []spriteInfo {
+	retries := 0
 	for {
+		// SAFETY: Prevent infinite loop in pathological cases
+		retries++
+		if retries > maxSpriteIndexBuildRetries {
+			log.Printf("ERROR: ensureSpriteIDIndexBuilt exceeded max retries (%d). Returning nil.", maxSpriteIndexBuildRetries)
+			// Return empty slice and hold a fake read lock that will be released by caller
+			spriteIDIndexMu.RLock()
+			return nil
+		}
+
 		spriteIDIndexMu.RLock()
 		if spriteIDIndexBuilt && spriteIDToIndex != nil && indexedSprites != nil {
 			// Index is valid, return the sprites it was built from
@@ -121,40 +166,19 @@ func InvalidateSpriteIDIndex() {
 	indexedSprites = nil
 }
 
-// ===== Optimization 7: Pixel Buffer Pool =====
-// Pool pixel buffers to avoid per-sprite allocations
-// Uses *[]byte instead of []byte to avoid allocation when boxing slice header (SA6002)
-
-var pixelBufferPool = sync.Pool{
-	New: func() interface{} {
-		// 8x8 sprite = 256 bytes (most common for PICO-8)
-		buf := make([]byte, 8*8*4)
-		return &buf
-	},
-}
+// ===== Optimization 7: Multi-Tier Pixel Buffer Pool =====
+// PlayStation-quality buffer pooling with multiple tiers for different
+// sprite sizes. This eliminates allocations for common sprite dimensions.
+// Tiers: 8x8, 16x16, 32x32, 64x64, 128x128
 
 func getPixelBuffer(size int) []byte {
-	bufPtr := pixelBufferPool.Get().(*[]byte)
-	buf := *bufPtr
-	if cap(buf) >= size {
-		buf = buf[:size]
-		// Clear buffer to prevent stale data from previous renders
-		// This is critical because transparent pixels are skipped (not written)
-		// and would otherwise show garbage data from previous pool uses
-		for i := range buf {
-			buf[i] = 0
-		}
-		return buf
-	}
-	// Rare: need larger buffer, allocate new (already zeroed by make)
-	return make([]byte, size)
+	// Use the global multi-tier buffer pool for efficient allocation
+	return GetBufferPool().Get(size)
 }
 
 func putPixelBuffer(buf []byte) {
-	// Only pool common sizes to avoid memory bloat
-	if cap(buf) <= 32*32*4 {
-		pixelBufferPool.Put(&buf)
-	}
+	// Return buffer to the multi-tier pool
+	GetBufferPool().Put(buf)
 }
 
 // Spr draws a potentially fractional rectangular region of sprites,
@@ -434,7 +458,10 @@ func parseSprOptions(options []any) (scaleW float64, scaleH float64, flipX bool,
 
 // createTransparentSpriteImage creates a transparent version of a sprite, with caching
 func createTransparentSpriteImage(tileImage *ebiten.Image) *ebiten.Image {
-	// Check cache first (caches are initialized once via sync.Once)
+	// Ensure caches are initialized before use
+	ensureCachesInitialized()
+
+	// Check cache first
 	if cached, exists := spriteImageCache.Get(tileImage); exists {
 		recordCacheHit()
 		return cached
@@ -463,7 +490,9 @@ func createTransparentSpriteImage(tileImage *ebiten.Image) *ebiten.Image {
 		r, g, b, a := sourcePixels[i], sourcePixels[i+1], sourcePixels[i+2], sourcePixels[i+3]
 
 		// Check if this pixel should be transparent (color 0 or fully transparent)
-		if a == 0 || (r == 0 && g == 0 && b == 0 && a == 255) {
+		// Using threshold to match shader behavior (< 0.01 ~= 2/255, > 0.99 ~= 253/255)
+		// This handles edge cases like compressed sprites with slight color drift
+		if a == 0 || (r <= 2 && g <= 2 && b <= 2 && a >= 253) {
 			// Skip setting transparent pixels - leave as 0
 			continue
 		}
@@ -736,8 +765,15 @@ func Sspr[SX Number, SY Number, SW Number, SH Number, DX Number, DY Number](sx S
 		return // Don't draw if scaled to zero size
 	}
 
-	// Create a temporary image for the source region
-	sourceImage := createSpriteSourceImage(sourceX, sourceY, sourceWidth, sourceHeight)
+	// Check Sspr cache first to prevent memory leaks
+	cacheKey := ssprCacheKey{sx: sourceX, sy: sourceY, sw: sourceWidth, sh: sourceHeight}
+	cache := getSsprCache()
+	sourceImage, cached := cache.Get(cacheKey)
+	if !cached {
+		// Create a new image for the source region and cache it
+		sourceImage = createSpriteSourceImage(sourceX, sourceY, sourceWidth, sourceHeight)
+		cache.Put(cacheKey, sourceImage)
+	}
 
 	// Reset and reuse the single draw options struct (no pool needed)
 	reusableDrawOpts.GeoM.Reset()

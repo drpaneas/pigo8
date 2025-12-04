@@ -4,9 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
-
-	// "fmt" // Not needed for this version
-
+	"image"
 	"image/color"
 	_ "image/png" // Keep in case other PNGs are loaded
 	"log"
@@ -174,9 +172,6 @@ func Cls(colorIndex ...int) {
 	clr := pico8Palette[idx]
 	currentScreen.Fill(clr)
 
-	// Clear the pixel buffer since we're clearing the screen
-	clearPixelBuffer()
-
 	// Fill shadow buffer with the clear color (for accurate Pget)
 	fillShadowBuffer(clr)
 
@@ -202,9 +197,6 @@ func ClsRGBA(clr color.RGBA) {
 
 	// Fill the screen with the provided RGBA color
 	currentScreen.Fill(clr)
-
-	// Clear the pixel buffer since we're clearing the screen
-	clearPixelBuffer()
 
 	// Fill shadow buffer with the clear color (for accurate Pget)
 	fillShadowBuffer(clr)
@@ -337,12 +329,18 @@ fallback:
 // using the specified PICO-8 color index or the current cursorColor.
 // Uses the internal `currentScreen` variable.
 //
+// NOTE: Unlike sprites and shapes, Pset uses SCREEN coordinates (not affected by camera).
+// This matches PICO-8 behavior where pset/pget operate on raw screen pixels.
+//
 // The color is specified by its index (0-15) in the standard Pico8Palette.
 // If no colorIndex is provided, the current cursorColor is used.
 //
 // If the coordinates (x, y) are outside the screen bounds, the function does nothing.
 // If an invalid colorIndex is provided (e.g., < 0 or > 15), a warning is logged,
 // and the function does nothing.
+//
+// OPTIMIZATION: Uses batched pixel system - pixels are queued and flushed once per frame
+// via a single WritePixels() call, eliminating per-pixel GPU operations.
 //
 // Example:
 //
@@ -354,11 +352,6 @@ func Pset(x, y int, colorIndex ...int) {
 	if currentScreen == nil {
 		log.Println("Warning: Pset() called before screen was ready.")
 		return
-	}
-
-	// Initialize pixel buffer if needed
-	if pixelBuffer == nil {
-		initPixelBuffer(GetScreenWidth(), GetScreenHeight())
 	}
 
 	// Determine original color to use
@@ -396,9 +389,7 @@ func Pset(x, y int, colorIndex ...int) {
 		return
 	}
 
-	// Apply camera offset
-	fx, fy := applyCameraOffset(float64(x), float64(y))
-	x, y = int(fx), int(fy)
+	// NOTE: No camera offset applied - Pset uses screen coordinates (PICO-8 behavior)
 
 	// Check bounds
 	if x < 0 || x >= GetScreenWidth() || y < 0 || y >= GetScreenHeight() {
@@ -419,8 +410,45 @@ func Pset(x, y int, colorIndex ...int) {
 	// Get the actual color.Color struct for the mapped color
 	pixelColor := pico8Palette[mappedColor]
 
-	// Set pixel in buffer instead of immediate GPU upload
-	setPixelInBuffer(x, y, pixelColor)
+	// OPTIMIZATION: Queue pixel in batch system instead of immediate GPU write
+	// Pixels are flushed once per frame via FlushPixelBatch() in engine.Draw()
+	pbs := getPixelBatchSystem()
+	pbs.ensureBufferSize(GetScreenWidth(), GetScreenHeight())
+	pbs.QueuePixel(x, y, pixelColor)
+
+	// Also update shadow buffer for immediate Pget() consistency
+	updateShadowBufferPixel(x, y, pixelColor)
+}
+
+// updateShadowBufferPixel updates a single pixel in the shadow buffer
+// This allows Pget() to read pixels set by Pset() in the same frame
+func updateShadowBufferPixel(x, y int, clr color.Color) {
+	if shadowBuffer == nil || !shadowBufferValid {
+		return
+	}
+	if x < 0 || x >= shadowBufferWidth || y < 0 || y >= shadowBufferHeight {
+		return
+	}
+
+	r, g, b, a := clr.RGBA()
+	offset := (y*shadowBufferWidth + x) * 4
+	if offset+3 < len(shadowBuffer) {
+		shadowBuffer[offset] = uint8(r >> 8)
+		shadowBuffer[offset+1] = uint8(g >> 8)
+		shadowBuffer[offset+2] = uint8(b >> 8)
+		shadowBuffer[offset+3] = uint8(a >> 8)
+	}
+}
+
+// FlushPixelBatch flushes all pending Pset() pixels to the screen.
+// This is called automatically at the end of Draw() by the engine.
+// Users should not need to call this directly.
+func FlushPixelBatch() {
+	if currentScreen == nil {
+		return
+	}
+	pbs := getPixelBatchSystem()
+	pbs.Flush(currentScreen)
 }
 
 const (
@@ -563,6 +591,9 @@ func Print(s any, args ...int) (int, int) {
 	// --- Draw ---
 	text.Draw(currentScreen, str, face, op)
 
+	// Mark shadow buffer dirty since we drew text directly to GPU
+	MarkShadowBufferDirtyFromSprite()
+
 	// --- Update Cursor Position ---
 	// If a position was explicitly provided, use that; otherwise, keep the current cursorX.
 	if len(args) >= 2 {
@@ -614,6 +645,8 @@ func Pal(args ...interface{}) {
 
 	if len(args) == 0 { // pal()
 		resetDrawPaletteMapInternal()
+		// Notify that palette has changed
+		NotifyPaletteChanged()
 		return
 	}
 
@@ -675,6 +708,8 @@ func Pal(args ...interface{}) {
 	switch p {
 	case 0: // Draw palette
 		drawPaletteMap[c0] = c1
+		// Notify that palette has changed (for thread-safe snapshot invalidation)
+		NotifyPaletteChanged()
 	case 1: // Screen palette
 		log.Printf("Warning: Pal() with p=1 (screen palette) is not yet implemented.")
 		// For now, screen palette calls do not modify the drawPaletteMap or screen.
@@ -704,6 +739,8 @@ func Palt(args ...interface{}) {
 		for i := range paletteTransparency {
 			paletteTransparency[i] = (i == 0)
 		}
+		// Notify that palette has changed
+		NotifyPaletteChanged()
 		return
 	}
 
@@ -739,6 +776,9 @@ func Palt(args ...interface{}) {
 
 	// Set the transparency for the specified color
 	paletteTransparency[colorIndex] = transparent
+
+	// Notify that palette has changed
+	NotifyPaletteChanged()
 }
 
 // --- Palette Management Functions ---
@@ -789,6 +829,9 @@ func SetPalette(newPalette []color.Color) {
 	// Rebuild colorToIndexMap to stay in sync with the new palette
 	// This ensures Pget() returns correct color indices
 	buildColorToIndexMap()
+
+	// Notify that palette has changed (for thread-safe snapshot invalidation)
+	NotifyPaletteChanged()
 }
 
 // Transparency is controlled using the Palt() function
@@ -836,6 +879,8 @@ func SetPaletteColor(colorIndex int, newColor color.Color) {
 		// Rebuild colorToIndexMap to stay in sync with the modified palette
 		// This ensures Pget() returns correct color indices
 		buildColorToIndexMap()
+		// Notify that palette has changed (for thread-safe snapshot invalidation)
+		NotifyPaletteChanged()
 	} else {
 		log.Printf("Warning: Attempted to set color at out-of-range index %d. Palette has %d colors.",
 			colorIndex, len(pico8Palette))
@@ -1004,11 +1049,61 @@ func fillShadowBuffer(clr color.Color) {
 	}
 }
 
-// MarkShadowBufferDirtyFromSprite marks the shadow buffer as needing GPU sync.
-// Call this when sprites are drawn via DrawImage/DrawRectShader.
+// MarkShadowBufferDirty marks the shadow buffer as needing GPU sync.
+// Call this when any GPU-side drawing occurs (sprites, shapes, text).
 // The next Pget() call will sync from GPU before reading.
-func MarkShadowBufferDirtyFromSprite() {
+func MarkShadowBufferDirty() {
 	shadowBufferDirtyFromSprites = true
+}
+
+// MarkShadowBufferDirtyFromSprite is deprecated - use MarkShadowBufferDirty instead.
+// Kept for backward compatibility.
+func MarkShadowBufferDirtyFromSprite() {
+	MarkShadowBufferDirty()
+}
+
+// drawPixelImmediate draws a single pixel directly to the screen.
+// This preserves draw order by not using buffering.
+func drawPixelImmediate(x, y int, clr color.Color) {
+	if currentScreen == nil {
+		return
+	}
+
+	// Check bounds against the current screen
+	bounds := currentScreen.Bounds()
+	if x < bounds.Min.X || x >= bounds.Max.X || y < bounds.Min.Y || y >= bounds.Max.Y {
+		return // Silently ignore out-of-bounds pixels
+	}
+
+	// Initialize shadow buffer if needed
+	if shadowBuffer == nil {
+		initShadowBuffer(GetScreenWidth(), GetScreenHeight())
+	}
+
+	// Create a 1x1 pixel buffer
+	r, g, b, a := clr.RGBA()
+	rByte := uint8(r >> 8)
+	gByte := uint8(g >> 8)
+	bByte := uint8(b >> 8)
+	aByte := uint8(a >> 8)
+
+	singlePixel := []byte{rByte, gByte, bByte, aByte}
+
+	// Get a 1x1 sub-image at the target position and write the pixel
+	subImg := currentScreen.SubImage(image.Rect(x, y, x+1, y+1)).(*ebiten.Image)
+	subImg.WritePixels(singlePixel)
+
+	// Also update shadow buffer (for Pget without GPU sync)
+	if shadowBuffer != nil && shadowBufferValid &&
+		x >= 0 && x < shadowBufferWidth && y >= 0 && y < shadowBufferHeight {
+		offset := (y*shadowBufferWidth + x) * 4
+		if offset+3 < len(shadowBuffer) {
+			shadowBuffer[offset] = rByte
+			shadowBuffer[offset+1] = gByte
+			shadowBuffer[offset+2] = bByte
+			shadowBuffer[offset+3] = aByte
+		}
+	}
 }
 
 // syncShadowBufferFromGPU syncs the shadow buffer from the GPU.

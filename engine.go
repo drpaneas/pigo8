@@ -35,6 +35,13 @@ type Settings struct {
 	Fullscreen   bool              // Start the game in fullscreen mode (Default: false).
 	ColorSpace   ebiten.ColorSpace // Color space for rendering (Default: ColorSpaceDefault).
 	DisableHiDPI bool              // Disable HiDPI scaling (Default: false).
+
+	// PlayStation-Quality Performance Settings
+	SpriteImageCacheSize int // Maximum cached transparent sprite images (Default: 256).
+	SpritePixelCacheSize int // Maximum cached sprite pixel data entries (Default: 256).
+	SsprCacheSize        int // Maximum cached Sspr source regions (Default: 128).
+	MapCacheEnabled      bool // Enable map tile caching (Default: true).
+	EnableFrameStats     bool // Enable frame-level performance statistics (Default: false).
 }
 
 // NewSettings creates a new Settings object with default values.
@@ -49,6 +56,13 @@ func NewSettings() *Settings {
 		Fullscreen:   false,                 // Windowed mode by default
 		ColorSpace:   ebiten.ColorSpaceDefault,
 		DisableHiDPI: true, // Better performance for retro-style games
+
+		// PlayStation-Quality Performance Settings (optimized defaults)
+		SpriteImageCacheSize: 256,   // Handles typical game sprite counts
+		SpritePixelCacheSize: 256,   // Match sprite image cache
+		SsprCacheSize:        128,   // Typical Sspr usage
+		MapCacheEnabled:      true,  // Map caching improves performance
+		EnableFrameStats:     false, // Disabled by default for release builds
 	}
 }
 
@@ -248,9 +262,9 @@ func (g *game) Draw(screen *ebiten.Image) {
 	// can read the previous frame's pixels during Update(). This is how PICO-8 works.
 	currentScreen = screen
 
-	// Initialize pixel buffer if needed
-	if pixelBuffer == nil {
-		initPixelBuffer(GetScreenWidth(), GetScreenHeight())
+	// Initialize shadow buffer if needed (for Pget without GPU sync)
+	if shadowBuffer == nil {
+		initShadowBuffer(GetScreenWidth(), GetScreenHeight())
 	}
 
 	// Initialize screen pixel cache if needed
@@ -258,15 +272,19 @@ func (g *game) Draw(screen *ebiten.Image) {
 		initScreenPixelCache(GetScreenWidth(), GetScreenHeight())
 	}
 
-	// Clear the screen
-	// screen.Clear()
+	// Initialize pixel batch system with correct screen dimensions
+	pbs := getPixelBatchSystem()
+	pbs.ensureBufferSize(GetScreenWidth(), GetScreenHeight())
 
 	// Call the user's Draw function
 	loadedCartridge.Draw()
 
-	// Flush all pending pixel operations at the end of the frame
-	flushPixelBuffer()
+	// Flush pending sprite sheet modifications (Sset batching)
 	flushSpriteModifications()
+
+	// OPTIMIZATION: Flush batched Pset() pixels in single GPU operation
+	// This replaces per-pixel sub-image creation with one WritePixels() call
+	FlushPixelBatch()
 
 	// Draw pause menu on top if active
 	if g.paused {
@@ -299,9 +317,9 @@ func (g *game) Draw(screen *ebiten.Image) {
 			optionY += 8
 		}
 
-		// Flush again after menu drawing
-		flushPixelBuffer()
+		// Flush sprite modifications and pixels after menu drawing
 		flushSpriteModifications()
+		FlushPixelBatch()
 	}
 
 	// Flush frame metrics (Optimization 8: batch atomic ops)
@@ -406,6 +424,12 @@ func PlayGameWith(settings *Settings) {
 
 	// Set screen size and initialize pixel buffer
 	setScreenSize(width, height)
+
+	// Apply cache size settings
+	applyCacheSettings(cfg)
+
+	// Enable frame stats if configured
+	EnableFrameStats(cfg.EnableFrameStats)
 
 	// Try to load custom palette from palette.hex if it exists
 	loadPaletteFromHexFile()

@@ -54,14 +54,45 @@ var (
 	cacheInitOnce sync.Once
 )
 
+// Cache size configuration (set via Settings)
+var (
+	configuredSpriteImageCacheSize = 256
+	configuredSpritePixelCacheSize = 256
+	configuredSsprCacheSize        = 128
+)
+
+// applyCacheSettings applies cache size configuration from Settings
+// This should be called before caches are initialized
+func applyCacheSettings(cfg *Settings) {
+	if cfg == nil {
+		return
+	}
+	if cfg.SpriteImageCacheSize > 0 {
+		configuredSpriteImageCacheSize = cfg.SpriteImageCacheSize
+	}
+	if cfg.SpritePixelCacheSize > 0 {
+		configuredSpritePixelCacheSize = cfg.SpritePixelCacheSize
+	}
+	if cfg.SsprCacheSize > 0 {
+		configuredSsprCacheSize = cfg.SsprCacheSize
+	}
+}
+
+// ensureCachesInitialized ensures the sprite caches are initialized before use.
+// This is called lazily by functions that access the caches.
+// Cache sizes are configurable via Settings.
+func ensureCachesInitialized() {
+	cacheInitOnce.Do(func() {
+		spriteImageCache = NewSpriteImageCache(configuredSpriteImageCacheSize)
+		spritePixelCacheManager = NewSpritePixelCache(configuredSpritePixelCacheSize)
+	})
+}
+
 // ClearSpriteCache clears the sprite cache (useful for memory management)
 func ClearSpriteCache() {
-	if spriteImageCache != nil {
-		spriteImageCache.Clear()
-	}
-	if spritePixelCacheManager != nil {
-		spritePixelCacheManager.Clear()
-	}
+	ensureCachesInitialized()
+	spriteImageCache.Clear()
+	spritePixelCacheManager.Clear()
 }
 
 // queueSpriteModification queues a pixel modification for batch processing
@@ -126,6 +157,9 @@ func flushSpriteModifications() {
 
 // initSpritePixelCache initializes the sprite pixel cache for batch reading operations
 func initSpritePixelCache(spriteID int, sprite *ebiten.Image) {
+	// Ensure caches are initialized before use
+	ensureCachesInitialized()
+
 	spritePixelCacheMutex.Lock()
 	defer spritePixelCacheMutex.Unlock()
 
@@ -133,26 +167,20 @@ func initSpritePixelCache(spriteID int, sprite *ebiten.Image) {
 	height := sprite.Bounds().Dy()
 	cacheSize := width * height * 4
 
-	// Check if we need to update the cache (cache should be initialized by now)
-	if spritePixelCacheManager != nil {
-		if _, currentSize, found := spritePixelCacheManager.Get(spriteID); !found || currentSize != cacheSize {
-			pixels := make([]byte, cacheSize)
-			spritePixelCacheManager.Put(spriteID, pixels, cacheSize)
-			spriteCacheValid[spriteID] = false
-		}
+	if _, currentSize, found := spritePixelCacheManager.Get(spriteID); !found || currentSize != cacheSize {
+		pixels := make([]byte, cacheSize)
+		spritePixelCacheManager.Put(spriteID, pixels, cacheSize)
+		spriteCacheValid[spriteID] = false
 	}
 }
 
 // updateSpritePixelCache reads all pixels from a sprite into the cache
 func updateSpritePixelCache(spriteID int, sprite *ebiten.Image) {
+	// Ensure caches are initialized before use
+	ensureCachesInitialized()
+
 	spritePixelCacheMutex.Lock()
 	defer spritePixelCacheMutex.Unlock()
-
-	// Get cached pixels (cache should be initialized by now)
-	if spritePixelCacheManager == nil {
-		spriteCacheValid[spriteID] = false
-		return
-	}
 
 	pixels, cacheSize, found := spritePixelCacheManager.Get(spriteID)
 	if sprite == nil || !found || cacheSize == 0 {
@@ -174,26 +202,26 @@ func invalidateSpritePixelCache(spriteID int) {
 
 // clearSpritePixelCache clears all sprite pixel caches
 func clearSpritePixelCache() {
+	// Ensure caches are initialized before use
+	ensureCachesInitialized()
+
 	spritePixelCacheMutex.Lock()
 	defer spritePixelCacheMutex.Unlock()
 
-	if spritePixelCacheManager != nil {
-		spritePixelCacheManager.Clear()
-	}
+	spritePixelCacheManager.Clear()
 	spriteCacheValid = make(map[int]bool)
 }
 
 // GetSpritePixelCacheStats returns statistics about sprite pixel caches
 func GetSpritePixelCacheStats() (totalSprites int, validSprites int, totalSize int) {
+	// Ensure caches are initialized before use
+	ensureCachesInitialized()
+
 	spritePixelCacheMutex.RLock()
 	defer spritePixelCacheMutex.RUnlock()
 
-	if spritePixelCacheManager != nil {
-		stats := spritePixelCacheManager.Stats()
-		totalSprites = stats.Size
-	} else {
-		totalSprites = 0
-	}
+	stats := spritePixelCacheManager.Stats()
+	totalSprites = stats.Size
 	validSprites = 0
 	totalSize = 0
 
