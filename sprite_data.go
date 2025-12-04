@@ -186,17 +186,19 @@ func Sset[X Number, Y Number](x X, y Y, colorIndex ...int) {
 	localX := px % 8 // X position within the sprite (0-7)
 	localY := py % 8 // Y position within the sprite (0-7)
 
-	// Find the sprite with the matching ID
-	for i := range currentSprites {
-		sprite := &currentSprites[i]
-		if sprite.ID == spriteCellID {
-			// Queue sprite modification instead of immediate GPU upload
-			queueSpriteModification(sprite.Image, localX, localY, pico8Palette[colorToUse])
-			return
-		}
+	// Use sprite ID mapping to find the actual sprite index (handles duplicates/empty sprites)
+	spriteIDMappingMu.RLock()
+	mappedIndex, hasMapped := SpriteIDMapping[spriteCellID]
+	spriteIDMappingMu.RUnlock()
+
+	if hasMapped && mappedIndex >= 0 && mappedIndex < len(currentSprites) {
+		sprite := &currentSprites[mappedIndex]
+		// Queue sprite modification instead of immediate GPU upload
+		queueSpriteModification(sprite.Image, localX, localY, pico8Palette[colorToUse])
+		return
 	}
 
-	// If no sprite with the matching ID was found, log a warning
+	// If no mapping found, log a warning
 	log.Printf("Warning: Sset() called for non-existent sprite ID %d at position (%d, %d)", spriteCellID, px, py)
 }
 
@@ -229,17 +231,13 @@ func Fset(spriteNum int, flagOrValue interface{}, value ...interface{}) {
 		currentSprites = sprites
 	}
 
-	// Find the sprite with the matching ID
-	var spriteIndex = -1
-	for i := range currentSprites {
-		if currentSprites[i].ID == spriteNum {
-			spriteIndex = i
-			break
-		}
-	}
+	// Use sprite ID mapping to find the actual sprite index (handles duplicates/empty sprites)
+	spriteIDMappingMu.RLock()
+	spriteIndex, hasMapped := SpriteIDMapping[spriteNum]
+	spriteIDMappingMu.RUnlock()
 
-	// If sprite not found, return
-	if spriteIndex == -1 {
+	// If sprite not found in mapping, return
+	if !hasMapped || spriteIndex < 0 || spriteIndex >= len(currentSprites) {
 		log.Printf("Warning: Fset() called with invalid sprite number: %d", spriteNum)
 		return
 	}
@@ -345,21 +343,19 @@ func Fget(spriteNum int, flag ...int) (bitfield int, isSet bool) {
 		currentSprites = sprites
 	}
 
-	// Find the sprite with the matching ID
-	var spriteInfo *spriteInfo
-	for i := range currentSprites {
-		if currentSprites[i].ID == spriteNum {
-			spriteInfo = &currentSprites[i]
-			break
-		}
-	}
+	// Use sprite ID mapping to find the actual sprite index (handles duplicates/empty sprites)
+	spriteIDMappingMu.RLock()
+	mappedIndex, hasMapped := SpriteIDMapping[spriteNum]
+	spriteIDMappingMu.RUnlock()
 
-	// If sprite not found, return zero values (reduce log noise for frequent queries)
-	if spriteInfo == nil {
+	// If sprite not found in mapping, return zero values
+	if !hasMapped || mappedIndex < 0 || mappedIndex >= len(currentSprites) {
 		// Only log in debug builds to reduce noise
 		debugLog("Fget() called for non-existent sprite ID %d", spriteNum)
 		return 0, false
 	}
+
+	spriteInfo := &currentSprites[mappedIndex]
 
 	// Get the entire bitfield
 	bitfield = spriteInfo.Flags.Bitfield
