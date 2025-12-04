@@ -895,13 +895,30 @@ func initShadowBuffer(width, height int) {
 	}
 }
 
+// pixelOverlay is a temporary image for compositing Pset pixels
+var pixelOverlay *ebiten.Image
+
 // flushPixelBuffer uploads all pending pixel changes to the GPU
+// Uses alpha blending so Pset pixels overlay shapes without erasing them
 func flushPixelBuffer() {
 	pixelBufferMutex.Lock()
 	defer pixelBufferMutex.Unlock()
 
 	if bufferDirty && currentScreen != nil && len(pixelBuffer) > 0 {
-		currentScreen.WritePixels(pixelBuffer)
+		// Create or reuse overlay image
+		if pixelOverlay == nil || pixelOverlay.Bounds().Dx() != pixelBufferWidth || pixelOverlay.Bounds().Dy() != pixelBufferHeight {
+			pixelOverlay = ebiten.NewImage(pixelBufferWidth, pixelBufferHeight)
+		}
+
+		// Write pixels to overlay (includes transparent pixels where nothing was set)
+		pixelOverlay.WritePixels(pixelBuffer)
+
+		// Draw overlay onto screen with alpha blending
+		// Transparent pixels (alpha=0) won't overwrite the destination
+		opts := &ebiten.DrawImageOptions{}
+		opts.Blend = ebiten.BlendSourceOver
+		currentScreen.DrawImage(pixelOverlay, opts)
+
 		bufferDirty = false
 
 		// Update screen pixel cache after flushing
