@@ -1,12 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <title>Controller Demo - PIGO-8</title>
+    <title>Space Invaders - PIGO-8</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         * {
@@ -17,8 +16,7 @@
             touch-action: manipulation;
         }
 
-        html,
-        body {
+        html, body {
             width: 100%;
             height: 100%;
             overflow: hidden;
@@ -26,14 +24,14 @@
             font-family: 'Courier New', monospace;
         }
 
-
+         
         canvas {
             image-rendering: pixelated;
             image-rendering: crisp-edges;
             -ms-interpolation-mode: nearest-neighbor;
         }
 
-
+         
         .controls-overlay {
             position: fixed;
             bottom: 0;
@@ -44,7 +42,7 @@
             z-index: 100;
         }
 
-
+         
         .dpad-container {
             width: 100px;
             height: 100px;
@@ -63,8 +61,7 @@
             user-select: none;
         }
 
-        .dpad-btn:active,
-        .dpad-btn.active {
+        .dpad-btn:active, .dpad-btn.active {
             background: linear-gradient(180deg, #89b4fa 0%, #74c7ec 100%);
             border-color: #b4befe;
             box-shadow: 0 0 15px rgba(137, 180, 250, 0.5);
@@ -117,19 +114,18 @@
             position: absolute;
         }
 
-
+         
         .dpad-arrow {
             color: #6c7086;
             font-size: 12px;
             font-weight: bold;
         }
 
-        .dpad-btn:active .dpad-arrow,
-        .dpad-btn.active .dpad-arrow {
+        .dpad-btn:active .dpad-arrow, .dpad-btn.active .dpad-arrow {
             color: #1e1e2e;
         }
 
-
+         
         .action-btn {
             width: 56px;
             height: 56px;
@@ -153,8 +149,7 @@
             box-shadow: 0 4px 0 #a6416d, 0 6px 15px rgba(243, 139, 168, 0.3);
         }
 
-        .btn-z:active,
-        .btn-z.active {
+        .btn-z:active, .btn-z.active {
             box-shadow: 0 1px 0 #a6416d, 0 0 20px rgba(243, 139, 168, 0.6);
             transform: translateY(3px);
         }
@@ -166,13 +161,12 @@
             box-shadow: 0 4px 0 #1e66f5, 0 6px 15px rgba(137, 180, 250, 0.3);
         }
 
-        .btn-x:active,
-        .btn-x.active {
+        .btn-x:active, .btn-x.active {
             box-shadow: 0 1px 0 #1e66f5, 0 0 20px rgba(137, 180, 250, 0.6);
             transform: translateY(3px);
         }
 
-
+         
         .start-btn {
             background: linear-gradient(180deg, #45475a 0%, #313244 100%);
             border: 2px solid #585b70;
@@ -189,15 +183,14 @@
             user-select: none;
         }
 
-        .start-btn:active,
-        .start-btn.active {
+        .start-btn:active, .start-btn.active {
             background: linear-gradient(180deg, #89b4fa 0%, #74c7ec 100%);
             border-color: #b4befe;
             color: #1e1e2e;
             box-shadow: 0 0 15px rgba(137, 180, 250, 0.5);
         }
 
-
+         
         .loading-screen {
             background: #11111b;
             color: #cdd6f4;
@@ -207,28 +200,15 @@
             animation: pulse 1.4s ease-in-out infinite;
         }
 
-        .loading-dot:nth-child(2) {
-            animation-delay: 0.2s;
-        }
-
-        .loading-dot:nth-child(3) {
-            animation-delay: 0.4s;
-        }
+        .loading-dot:nth-child(2) { animation-delay: 0.2s; }
+        .loading-dot:nth-child(3) { animation-delay: 0.4s; }
 
         @keyframes pulse {
-
-            0%,
-            80%,
-            100% {
-                opacity: 0.3;
-            }
-
-            40% {
-                opacity: 1;
-            }
+            0%, 80%, 100% { opacity: 0.3; }
+            40% { opacity: 1; }
         }
 
-
+         
         .brand-text {
             font-family: 'Courier New', monospace;
             font-weight: bold;
@@ -239,7 +219,7 @@
             background-clip: text;
         }
 
-
+         
         .header-bar {
             position: fixed;
             top: 0;
@@ -253,30 +233,28 @@
             align-items: center;
         }
 
-
+         
         @media (max-width: 380px) {
             .dpad-container {
                 width: 85px;
                 height: 85px;
             }
-
-            .dpad-up,
-            .dpad-down {
+            
+            .dpad-up, .dpad-down {
                 width: 28px;
                 height: 32px;
             }
-
-            .dpad-left,
-            .dpad-right {
+            
+            .dpad-left, .dpad-right {
                 width: 32px;
                 height: 28px;
             }
-
+            
             .dpad-center {
                 width: 28px;
                 height: 28px;
             }
-
+            
             .action-btn {
                 width: 48px;
                 height: 48px;
@@ -284,21 +262,21 @@
             }
         }
 
-
+         
         @media (max-height: 450px) {
             .header-bar {
                 display: none;
             }
-
+            
             .controls-overlay {
                 padding: 0.5rem;
             }
-
+            
             .dpad-container {
                 width: 80px;
                 height: 80px;
             }
-
+            
             .action-btn {
                 width: 44px;
                 height: 44px;
@@ -306,9 +284,8 @@
         }
     </style>
 </head>
-
 <body>
-
+    
     <div id="loading" class="loading-screen fixed inset-0 flex flex-col items-center justify-center z-50">
         <div class="text-2xl brand-text mb-4">PIGO-8</div>
         <div class="flex gap-1 text-2xl">
@@ -316,21 +293,21 @@
             <span class="loading-dot">●</span>
             <span class="loading-dot">●</span>
         </div>
-        <div class="text-sm text-gray-500 mt-4">Loading Controller Demo...</div>
+        <div class="text-sm text-gray-500 mt-4">Loading Space Invaders...</div>
     </div>
 
-
+    
     <div class="header-bar">
         <div class="text-sm brand-text">PIGO-8</div>
-        <div class="text-xs text-gray-500 font-mono">Controller Demo</div>
+        <div class="text-xs text-gray-500 font-mono">Space Invaders</div>
     </div>
 
+    
 
-
-
+    
     <div class="controls-overlay">
         <div class="flex justify-between items-center max-w-lg mx-auto">
-
+            
             <div class="dpad-container">
                 <button class="dpad-btn dpad-up" data-button="2">
                     <span class="dpad-arrow">▲</span>
@@ -347,54 +324,54 @@
                 <div class="dpad-center"></div>
             </div>
 
-
+            
             <button class="start-btn" data-button="6">START</button>
 
-
+            
             <div class="flex gap-2 items-center">
                 <button class="action-btn btn-x" data-button="5">X</button>
                 <button class="action-btn btn-z -mt-4" data-button="4">Z</button>
             </div>
         </div>
         <div class="text-center text-xs text-gray-600 mt-2">
-            Keyboard: Arrow Keys + Z/X + Enter
+            Keyboard: Arrow Keys + Z to shoot
         </div>
     </div>
 
-
+    
     <script src="wasm_exec.js"></script>
     <script>
-
+        
         const BUTTON_LEFT = 0;
         const BUTTON_RIGHT = 1;
         const BUTTON_UP = 2;
         const BUTTON_DOWN = 3;
-        const BUTTON_O = 4;
-        const BUTTON_X = 5;
+        const BUTTON_O = 4;  
+        const BUTTON_X = 5;  
         const BUTTON_START = 6;
 
-
+        
         const buttonStates = {};
 
-
-
+        
+        
         let wasmReady = false;
         let pendingInputs = [];
 
-
+        
         function setButton(buttonIndex, pressed) {
             if (buttonStates[buttonIndex] === pressed) return;
             buttonStates[buttonIndex] = pressed;
-
+            
             if (wasmReady && typeof window.pigo8SetButton === 'function') {
                 window.pigo8SetButton(buttonIndex, pressed);
             } else {
-
+                
                 pendingInputs.push({ buttonIndex, pressed });
             }
         }
 
-
+        
         function processPendingInputs() {
             if (typeof window.pigo8SetButton === 'function') {
                 pendingInputs.forEach(({ buttonIndex, pressed }) => {
@@ -404,55 +381,55 @@
             pendingInputs = [];
         }
 
-
+        
         function initControls() {
             const buttons = document.querySelectorAll('[data-button]');
-
+            
             buttons.forEach(button => {
                 const buttonIndex = parseInt(button.dataset.button);
-
-
-
-
-
+                
+                
+                
+                
+                
                 button.addEventListener('touchstart', (e) => {
                     e.preventDefault();
                     button.classList.add('active');
                     setButton(buttonIndex, true);
                 }, { passive: false });
-
+                
                 button.addEventListener('touchend', (e) => {
                     e.preventDefault();
                     button.classList.remove('active');
                     setButton(buttonIndex, false);
                 }, { passive: false });
-
+                
                 button.addEventListener('touchcancel', (e) => {
                     e.preventDefault();
                     button.classList.remove('active');
                     setButton(buttonIndex, false);
                 }, { passive: false });
-
-
+                
+                
                 button.addEventListener('mousedown', (e) => {
                     e.preventDefault();
                     button.classList.add('active');
                     setButton(buttonIndex, true);
                 });
-
+                
                 button.addEventListener('mouseup', (e) => {
                     e.preventDefault();
                     button.classList.remove('active');
                     setButton(buttonIndex, false);
                 });
-
+                
                 button.addEventListener('mouseleave', (e) => {
                     button.classList.remove('active');
                     setButton(buttonIndex, false);
                 });
             });
 
-
+            
             document.addEventListener('contextmenu', (e) => {
                 if (e.target.closest('[data-button]')) {
                     e.preventDefault();
@@ -460,28 +437,28 @@
             });
         }
 
-
+        
         async function loadGame() {
             const go = new Go();
-
+            
             try {
                 const response = await fetch('game.wasm');
                 if (!response.ok) {
                     throw new Error('Failed to load game.wasm: ' + response.statusText);
                 }
-
+                
                 const result = await WebAssembly.instantiateStreaming(response, go.importObject);
-
-
+                
+                
                 document.getElementById('loading').style.display = 'none';
-
-
+                
+                
                 initControls();
-
-
+                
+                
                 go.run(result.instance);
-
-
+                
+                
                 wasmReady = true;
                 processPendingInputs();
             } catch (error) {
@@ -499,7 +476,7 @@
             }
         }
 
-
+        
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', loadGame);
         } else {
@@ -507,5 +484,5 @@
         }
     </script>
 </body>
-
 </html>
+

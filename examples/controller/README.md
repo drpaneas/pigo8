@@ -1,15 +1,20 @@
 # Controller Demo
 
-This example demonstrates input handling by drawing an NES-style controller and highlighting buttons when they are pressed.
+A visual input tester built with [PIGO8](https://github.com/drpaneas/pigo8) that displays an NES-style controller and highlights buttons when pressed.
 
-## What It Shows
+## 🎮 Play Online
 
+**[▶️ Play Controller Demo in your browser](https://drpaneas.github.io/pigo8/controller/)**
+
+## 📖 Description
+
+This example demonstrates input handling in PIGO8. It shows:
 - Drawing shapes (rectangles, circles) to create a controller UI
 - Using `p8.Btn()` to detect button presses
 - Visual feedback when buttons are pressed
 - PICO-8 button mapping (0-5 for directions and face buttons)
 
-## Controls
+### Controls
 
 | Button | Key | Index |
 |--------|-----|-------|
@@ -20,26 +25,55 @@ This example demonstrates input handling by drawing an NES-style controller and 
 | O      | Z | 4 |
 | X      | X | 5 |
 
-## Running
+## ⚙️ Requirements
+
+- Go 1.24+
+- PIGO8 library
+  ```sh
+  go get github.com/drpaneas/pigo8
+  ```
+
+## 🚀 Run Locally
 
 ```bash
 cd examples/controller
-go run main.go
+go run .
 ```
 
-## Web Demo
-
-Try it in your browser: [Controller Demo](https://drpaneas.github.io/pigo8/controller/)
-
-## Code Highlights
+## 📝 Source Code
 
 ```go
-// Check if a button is currently pressed
-if p8.Btn(0) { // p8.LEFT
-    // Highlight the left button
-    p8.Print("0", 22, 66, 4)  // Brown color when pressed
+package main
+
+import (
+	p8 "github.com/drpaneas/pigo8"
+)
+
+type Game struct{}
+
+func (g *Game) Init()   {}
+func (g *Game) Update() {}
+
+func (g *Game) Draw() {
+	p8.Cls(1)
+	p8.Print("controller", 40, 20, 10)
+
+	// Draw controller body
+	p8.Rectfill(10, 50, 117, 90, 7)
+	p8.Rect(10, 50, 117, 90, 0)
+
+	// D-pad with button detection
+	p8.Rectfill(20, 65, 27, 73, 0)
+	p8.Print("0", 22, 66, 12)
+	if p8.Btn(0) { // p8.LEFT
+		p8.Print("0", 22, 66, 4) // Highlight when pressed
+	}
+
+	// ... more buttons ...
+}
+
+func main() {
+	p8.InsertGame(&Game{})
+	p8.Play()
 }
 ```
-
-The demo draws a classic NES controller layout and shows each button's index number. When you press a button, it changes color to provide visual feedback.
-

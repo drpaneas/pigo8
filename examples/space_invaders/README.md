@@ -1,39 +1,96 @@
 # Space Invaders
 
-A classic Space Invaders game implemented using PIGO8, inspired by the 1978 arcade hit.
+A classic Space Invaders game built with [PIGO8](https://github.com/drpaneas/pigo8), inspired by the 1978 arcade hit.
 
-## Controls
+## 🎮 Play Online
 
-- **Left/Right Arrow Keys**: Move spaceship
-- **A Button**: Shoot
-- **A Button (Game Over)**: Restart game
+**[▶️ Play Space Invaders in your browser](https://drpaneas.github.io/pigo8/space_invaders/)**
 
-## Features
+## 📖 Description
 
-- Classic Space Invaders gameplay
-- Multiple alien types with different point values
-- Score tracking
-- Lives system
+This example demonstrates a complete game implementation in PIGO8. It shows:
+- Player movement and shooting mechanics
+- Enemy AI with random shooting patterns
+- Collision detection between bullets and aliens
+- Score tracking and lives system
 - Game over and restart functionality
+- Sound effects with `p8.Music()`
 
-## How to Run
+### Controls
+
+- **Arrow Keys**: Move spaceship left/right
+- **Z (O button)**: Shoot / Restart game
+
+## ⚙️ Requirements
+
+- Go 1.24+
+- PIGO8 library
+  ```sh
+  go get github.com/drpaneas/pigo8
+  ```
+
+## 🚀 Run Locally
 
 ```bash
 cd examples/space_invaders
+go generate  # Generate embedded assets
 go run .
 ```
 
-## Gameplay
+## 📝 Source Code
 
-- Destroy all alien invaders before they reach the bottom of the screen
-- Each alien shot gives you 10 points
-- You have 3 lives - if an alien bullet hits you or aliens reach the bottom, you lose a life
-- Game ends when you run out of lives
-- Clear all aliens to advance to the next level
+```go
+package main
 
-## Technical Details
+import (
+	"fmt"
+	"github.com/drpaneas/pigo8"
+)
 
-- Built using PIGO8's rendering and input systems
-- Implements simple collision detection
-- Uses sprites for the player and aliens
-- Features simple AI for alien movement and shooting patterns
+type Game struct {
+	playerX, playerY int
+	lives            int
+	bullets          []bullet
+	aliens           []alien
+	score            int
+	gameOver         bool
+}
+
+func (g *Game) Init() {
+	g.playerX = 64
+	g.playerY = 120
+	g.lives = 7
+	g.initAliens()
+}
+
+func (g *Game) Update() {
+	// Player movement
+	if pigo8.Btn(pigo8.LEFT) && g.playerX > 8 {
+		g.playerX -= 2
+	}
+	if pigo8.Btn(pigo8.RIGHT) && g.playerX < 120 {
+		g.playerX += 2
+	}
+	
+	// Shooting
+	if pigo8.Btnp(pigo8.O) {
+		g.bullets = append(g.bullets, bullet{x: g.playerX, y: g.playerY - 8})
+	}
+	
+	// Update bullets and check collisions...
+}
+
+func (g *Game) Draw() {
+	pigo8.Cls(0)
+	// Draw player triangle
+	pigo8.Line(g.playerX+4, g.playerY-8, g.playerX, g.playerY, 7)
+	pigo8.Line(g.playerX+4, g.playerY-8, g.playerX+8, g.playerY, 7)
+	// Draw aliens, bullets, UI...
+	pigo8.Print(fmt.Sprintf("score: %d", g.score), 4, 4, 7)
+}
+
+func main() {
+	pigo8.InsertGame(NewGame())
+	pigo8.Play()
+}
+```
