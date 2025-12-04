@@ -1,18 +1,70 @@
 # Summary
 
-- [Introduction](introduction.md)
-- [Installing Go](installing_go.md)
-- [Port p8 to PIGO8](port_intro.md)
-  - [Parse p8 sprites](parsepico.md)
-  - [Port Lua to Go](portluatogo.md)
-  - [Build for Other platforms](crossbuild.md)
-- [Resource Embedding](embedding.md)
-  - [Using Music](music.md)
-- [Palette Management](palette-management.md)
-- [Transparency](transparency.md)
+[Introduction](introduction.md)
+
+# Getting Started
+
+- [Installation](01-installation.md)
+- [Hello World](02-hello-world.md)
+- [The Game Loop](03-game-loop.md)
+- [Settings](04-settings.md)
+
+# Graphics
+
+- [Overview](10-graphics/00-overview.md)
+- [Screen](10-graphics/01-screen.md)
+- [Colors and Palette](10-graphics/02-colors.md)
+- [Pixels](10-graphics/03-pixels.md)
+- [Shapes](10-graphics/04-shapes.md)
+- [Text](10-graphics/05-text.md)
+- [Palette Effects](10-graphics/06-palette-effects.md)
+
+# Sprites
+
+- [Overview](20-sprites/00-overview.md)
+- [Drawing Sprites](20-sprites/01-drawing-sprites.md)
+- [Spritesheet Regions](20-sprites/02-spritesheet-regions.md)
+- [Sprite Flags](20-sprites/03-sprite-flags.md)
+
+# Maps
+
+- [Overview](30-maps/00-overview.md)
+- [Drawing Maps](30-maps/01-drawing-maps.md)
+- [Map Data](30-maps/02-map-data.md)
+
+# Input
+
+- [Keyboard](40-input/01-keyboard.md)
+- [Gamepad](40-input/02-gamepad.md)
+- [Mouse](40-input/03-mouse.md)
+
+# Audio
+
+- [Music and Sound](50-audio/00-music.md)
+
+# Game Mechanics
+
+- [Camera](60-camera/00-camera.md)
+- [Color Collision](70-collision/01-color-collision.md)
+- [Map Collision](70-collision/02-map-collision.md)
+- [Math Functions](80-math/00-math.md)
+
+# Advanced Topics
+
+- [Resource Embedding](90-advanced/01-resource-embedding.md)
+- [Web Export](90-advanced/02-web-export.md)
 - [PIGO8 Editor](editor.md)
-- [Web Export](web_export.md)
-- [Custom Functions](custom_functions.md)
-  - [Color Collision Detection](color_collision.md)
-  - [Map Collision Detection](map_collision.md)
+- [Cross-Platform Build](crossbuild.md)
 - [Multiplayer Networking](multiplayer_networking.md)
+- [Porting from PICO-8](port_intro.md)
+  - [Parse .p8 Files](parsepico.md)
+  - [Lua to Go](portluatogo.md)
+
+# Tutorials
+
+- [Building Pong](tutorials/00-pong.md)
+
+# Reference
+
+- [Cheatsheet](reference/cheatsheet.md)
+- [PICO-8 Comparison](reference/pico8-comparison.md)

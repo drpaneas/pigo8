@@ -2,55 +2,60 @@
 
 ![PIGO8 Logo](logo.png)
 
-**PIGO8 Documentation** is your guide to building retro-styled games for the PICO-8 fantasy console using the power of **Go**.
-With a simple API, minimal setup, and a dose of old-school charm, PIGO8 bridges modern Go programming with the nostalgic appeal of PICO-8.
+**PIGO8** is a Go library for building retro-style games with intentional constraints that accelerate creativity. Rather than being overwhelmed by infinite possibilities, you work within a focused environment: a compact screen, limited colors, and a simple API that does one thing well.
 
-> This documentation is evolving as the library matures. Expect updates and improvements as new features are added.
+## Why Build Games with Constraints?
 
-## What is PIGO8?
+Game development often fails not from lack of tools, but from too many choices. PIGO8 gives you:
 
-PIGO8 is a Go library designed to help you create games that run on the PICO-8 virtual console. It abstracts the lower-level technical details while keeping the distinctive PICO-8 aesthetic intact. Whether you're looking to prototype a game or build a full-featured project, PIGO8 offers the tools to bring your vision to life.
+- **A fixed canvas**: 128×128 pixels by default (customizable for Game Boy, NES, or other resolutions)
+- **A curated palette**: 16 colors that work beautifully together
+- **A minimal API**: Draw sprites, handle input, play sounds—nothing more
+- **Instant feedback**: See changes immediately with hot reload support
 
-With PIGO8 you can:
+These constraints mirror what made 8-bit game development productive: small scope, clear boundaries, finished games.
 
-* 🚀 Develop games using a clean and straightforward Go API
-* 🎮 Leverage the retro charm of PICO-8 while benefiting from modern development practices
-* 🛠 Integrate seamlessly with Go’s tooling and ecosystem
+## What You Can Build
 
-## Why Use Go for PICO-8 Development?
+PIGO8 is ideal for:
 
-PICO-8 is a wonderful fantasy console with its own Lua-based game engine, but once your ideas outgrow the 128×128 constraint you may want to move to a general-purpose language.
-Go is a simple, fast, modern language – and thanks to the pigo8 library you can actually port PICO-8 code almost line-for-line.
+- **Arcade games**: Pong, Space Invaders, Breakout clones
+- **Platformers**: Side-scrolling adventures with tile-based maps
+- **Puzzle games**: Match-3, Tetris-style, or logic puzzles
+- **Prototypes**: Test game mechanics before committing to a larger engine
+- **Game jams**: Ship something playable in 48 hours
 
-Go is known for its simplicity, speed, and efficiency. By using Go as your development language, PIGO8 empowers you to:
+## The PICO-8 Connection
 
-* Write concise and maintainable code without sacrificing performance
-* Utilize robust tooling for testing, building, and deployment
-* Adopt modern programming patterns in an environment inspired by classic gaming
+PIGO8 is inspired by [PICO-8](https://www.lexaloffle.com/pico-8.php), a fantasy console with a dedicated following. If you've written PICO-8 games in Lua, you'll find the API familiar. Functions like `Spr()`, `Map()`, `Btn()`, and `Cls()` work similarly.
 
-## What’s in This Documentation?
+However, PIGO8 is **not** PICO-8:
 
-This guide covers everything you need to get started with PIGO8, including:
+- Written in Go, not Lua (arrays start at 0, not 1)
+- No artificial code/memory limits
+- Can target any resolution, not just 128×128
+- Exports to native binaries and WebAssembly
+- Open source under MIT license
 
-* Setting up your development environment
-* Creating and managing sprites and assets
-* Building and deploying your PICO-8 games
-* Tips and tricks for optimizing your retro game projects
+## What's in This Documentation?
 
-Whether you're a seasoned Go developer or new to the PICO-8 scene, this documentation aims to help you start building games quickly and confidently.
+This guide covers:
 
-## Who Is This Documentation For?
+1. **Getting Started**: Installation and your first game
+2. **Graphics**: Drawing pixels, shapes, text, and sprites
+3. **Maps**: Tile-based level design
+4. **Input**: Keyboard, gamepad, and mouse handling
+5. **Audio**: Playing sound effects and music
+6. **Game Mechanics**: Camera, collision detection, math utilities
+7. **Advanced Topics**: Web export, multiplayer, porting PICO-8 games
+8. **Tutorials**: Step-by-step game projects
 
-This book is intended for:
+## Prerequisites
 
-* Developers interested in retro game development with Go
-* Go enthusiasts looking to explore the PICO-8 creative space
-* Hobbyists or indie game developers eager to experiment with a blend of modern and vintage technologies
+This documentation assumes you:
 
-## Helpful Links
+- Know Go basics (packages, structs, methods, interfaces)
+- Have Go 1.21+ installed
+- Have a code editor with Go support
 
-* [PIGO8 GitHub Repository](https://github.com/drpaneas/pigo8) – main development repo
-* [PICO-8 Official Site](https://www.lexaloffle.com/pico-8.php) – learn more about the fantasy console
-* [Go Documentation](https://golang.org/doc/) – resources to get started with Go
-
-Dive in and explore the exciting possibilities with PIGO8 – where modern Go meets classic PICO-8 creativity!
+You don't need prior game development experience—that's what we're here to teach.
