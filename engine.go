@@ -36,10 +36,10 @@ type Settings struct {
 	ColorSpace   ebiten.ColorSpace // Color space for rendering (Default: ColorSpaceDefault).
 	DisableHiDPI bool              // Disable HiDPI scaling (Default: false).
 
-	// PlayStation-Quality Performance Settings
-	SpriteImageCacheSize int // Maximum cached transparent sprite images (Default: 256).
-	SpritePixelCacheSize int // Maximum cached sprite pixel data entries (Default: 256).
-	SsprCacheSize        int // Maximum cached Sspr source regions (Default: 128).
+	// Cache Settings
+	SpriteImageCacheSize int  // Maximum cached transparent sprite images (Default: 256).
+	SpritePixelCacheSize int  // Maximum cached sprite pixel data entries (Default: 256).
+	SsprCacheSize        int  // Maximum cached Sspr source regions (Default: 128).
 	MapCacheEnabled      bool // Enable map tile caching (Default: true).
 	EnableFrameStats     bool // Enable frame-level performance statistics (Default: false).
 }
@@ -57,12 +57,12 @@ func NewSettings() *Settings {
 		ColorSpace:   ebiten.ColorSpaceDefault,
 		DisableHiDPI: true, // Better performance for retro-style games
 
-		// PlayStation-Quality Performance Settings (optimized defaults)
-		SpriteImageCacheSize: 256,   // Handles typical game sprite counts
-		SpritePixelCacheSize: 256,   // Match sprite image cache
-		SsprCacheSize:        128,   // Typical Sspr usage
-		MapCacheEnabled:      true,  // Map caching improves performance
-		EnableFrameStats:     false, // Disabled by default for release builds
+		// Cache settings (optimized defaults)
+		SpriteImageCacheSize: 256,
+		SpritePixelCacheSize: 256,
+		SsprCacheSize:        128,
+		MapCacheEnabled:      true,
+		EnableFrameStats:     false,
 	}
 }
 

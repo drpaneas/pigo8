@@ -8,22 +8,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// ============================================================================
-// PlayStation-Quality Batched Pixel System
-// ============================================================================
-// This module provides zero-allocation batched pixel rendering for Pset().
-// Instead of creating a 1x1 sub-image per pixel (expensive GPU operation),
-// we accumulate pixel writes into a CPU buffer and flush once per frame.
-//
-// Architecture:
-// - pendingPixels: sparse map of (x,y) -> RGBA for dirty pixels
-// - batchBuffer: pre-allocated RGBA buffer matching screen dimensions
-// - Single WritePixels() call per frame via overlay compositing
-//
-// Thread Safety:
-// - All operations happen within Ebiten's single-threaded Draw() context
-// - No mutex needed for hot path operations
-// ============================================================================
+// Batched pixel rendering for Pset(). Accumulates pixel writes into a CPU buffer
+// and flushes once per frame via a single WritePixels() call.
 
 // pendingPixel represents a single pixel write request
 type pendingPixel struct {
@@ -186,12 +172,8 @@ func (pbs *PixelBatchSystem) HasPending() bool {
 	return pbs.hasPendingPixels
 }
 
-// ============================================================================
-// Multi-Tier Pixel Buffer Pool
-// ============================================================================
-// PlayStation-quality buffer pooling with multiple tiers for different
-// sprite sizes. This eliminates allocations for common sprite dimensions.
-// ============================================================================
+// Multi-tier buffer pool for sprite rendering. Pools buffers by size tier
+// (8x8, 16x16, 32x32, 64x64, 128x128) to reduce allocations.
 
 // BufferTier represents a pool tier for a specific buffer size
 type BufferTier struct {
@@ -332,12 +314,7 @@ func (p *MultiTierBufferPool) Stats() BufferPoolStats {
 	return p.stats
 }
 
-// ============================================================================
-// Sprite Draw Batch System
-// ============================================================================
-// Batches multiple sprites using the same source image into a single draw call.
-// This reduces GPU state changes and improves rendering performance.
-// ============================================================================
+// Sprite batch system. Groups sprites by source image for fewer draw calls.
 
 // SpriteBatchEntry represents a single sprite to be drawn
 type SpriteBatchEntry struct {
@@ -453,11 +430,7 @@ func (sbs *SpriteBatchSystem) Stats() (queued int64, batches int64) {
 	return sbs.spritesQueued, sbs.batchesDrawn
 }
 
-// ============================================================================
-// Draw Region Pool (for sub-image optimization)
-// ============================================================================
-// Pools image.Rectangle objects to avoid allocations in hot paths
-// ============================================================================
+// Rectangle pool for sub-image operations.
 
 var rectPool = sync.Pool{
 	New: func() interface{} {

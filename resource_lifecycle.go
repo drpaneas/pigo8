@@ -10,18 +10,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// ============================================================================
-// PlayStation-Quality Resource Lifecycle Management
-// ============================================================================
-// This module provides proper resource disposal, memory tracking, and cleanup
-// patterns expected in professional game development.
-//
-// Features:
-// - Automatic resource tracking with disposal callbacks
-// - Memory pressure detection and proactive cleanup
-// - Graceful shutdown handling
-// - Resource leak detection in debug builds
-// ============================================================================
+// Resource lifecycle management: tracking, disposal, and memory pressure handling.
 
 // ResourceType identifies the type of tracked resource
 type ResourceType int

@@ -166,10 +166,7 @@ func InvalidateSpriteIDIndex() {
 	indexedSprites = nil
 }
 
-// ===== Optimization 7: Multi-Tier Pixel Buffer Pool =====
-// PlayStation-quality buffer pooling with multiple tiers for different
-// sprite sizes. This eliminates allocations for common sprite dimensions.
-// Tiers: 8x8, 16x16, 32x32, 64x64, 128x128
+// Multi-tier buffer pool for sprite pixel data.
 
 func getPixelBuffer(size int) []byte {
 	// Use the global multi-tier buffer pool for efficient allocation

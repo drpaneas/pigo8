@@ -8,19 +8,7 @@ import (
 	"time"
 )
 
-// ============================================================================
-// PlayStation-Quality Performance Profiler
-// ============================================================================
-// Comprehensive performance metrics collection and analysis for game profiling.
-// Designed for minimal overhead when disabled, maximum insight when enabled.
-//
-// Features:
-// - Per-frame timing breakdown (Update, Draw, GPU sync)
-// - Memory allocation tracking
-// - Cache efficiency metrics
-// - Draw call counting
-// - Configurable sample windows for averaging
-// ============================================================================
+// Performance profiler for frame timing, memory tracking, and cache metrics.
 
 // ProfilerSection identifies which part of the frame is being profiled
 type ProfilerSection int
