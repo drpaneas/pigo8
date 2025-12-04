@@ -179,7 +179,7 @@ func autoDetectResources() {
 // fileExists checks if a file exists and is not a directory
 func fileExists(filename string) bool {
 	info, err := os.Stat(filename)
-	if os.IsNotExist(err) {
+	if err != nil {
 		return false
 	}
 	return !info.IsDir()
