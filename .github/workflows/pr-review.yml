@@ -1,0 +1,53 @@
+name: PR Review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install prview
+        run: go install github.com/drpaneas/prview@latest
+
+      - name: Run prview
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          prview --dry-run \
+            "https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}" \
+            > review.md 2>/dev/null || true
+
+      - name: Comment on PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -s review.md ]; then
+            echo "No review output, skipping."
+            exit 0
+          fi
+
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          MARKER="<!-- prview-bot -->"
+          { echo "$MARKER"; cat review.md; } > comment.md
+
+          COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" \
+            | head -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              -X PATCH -F "body=@comment.md"
+          else
+            gh pr comment "$PR_NUMBER" -R "${{ github.repository }}" --body-file comment.md
+          fi
