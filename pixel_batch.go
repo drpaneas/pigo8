@@ -184,17 +184,17 @@ type BufferTier struct {
 
 // MultiTierBufferPool provides efficient buffer allocation for varying sizes
 type MultiTierBufferPool struct {
-	tiers    []*BufferTier
-	stats    BufferPoolStats
-	statsMu  sync.RWMutex
+	tiers   []*BufferTier
+	stats   BufferPoolStats
+	statsMu sync.RWMutex
 }
 
 // BufferPoolStats tracks pool performance
 type BufferPoolStats struct {
-	Hits       int64
-	Misses     int64
+	Hits        int64
+	Misses      int64
 	Allocations int64
-	Returns    int64
+	Returns     int64
 }
 
 // Pre-defined tier sizes (in pixels, multiply by 4 for bytes)
@@ -318,11 +318,11 @@ func (p *MultiTierBufferPool) Stats() BufferPoolStats {
 
 // SpriteBatchEntry represents a single sprite to be drawn
 type SpriteBatchEntry struct {
-	SrcImage *ebiten.Image
-	DstX, DstY float64
+	SrcImage       *ebiten.Image
+	DstX, DstY     float64
 	ScaleX, ScaleY float64
-	FlipX, FlipY bool
-	UseShader bool
+	FlipX, FlipY   bool
+	UseShader      bool
 }
 
 // SpriteBatchSystem batches sprite draw calls
@@ -452,4 +452,3 @@ func GetRect(x0, y0, x1, y1 int) *image.Rectangle {
 func PutRect(r *image.Rectangle) {
 	rectPool.Put(r)
 }
-

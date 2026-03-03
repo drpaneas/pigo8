@@ -15,6 +15,7 @@ import (
 // ResourceType identifies the type of tracked resource
 type ResourceType int
 
+// Resource types for lifecycle tracking.
 const (
 	ResourceTypeImage ResourceType = iota
 	ResourceTypeShader
@@ -58,7 +59,7 @@ type ResourceManager struct {
 	// Memory tracking
 	totalAllocated int64
 	peakAllocated  int64
-	
+
 	// Thresholds
 	memoryWarningThreshold int64 // Bytes - warn when exceeded
 	memoryLimitThreshold   int64 // Bytes - force cleanup when exceeded
@@ -320,7 +321,7 @@ func (di *DisposableImage) Dispose() {
 	}
 
 	di.disposed = true
-	di.Image.Deallocate()
+	di.Deallocate()
 	GetResourceManager().Release(di.resourceID)
 }
 
@@ -376,4 +377,3 @@ func StopMemoryWatcher() {
 		close(memoryWatcherStop)
 	}
 }
-
