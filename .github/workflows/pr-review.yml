@@ -26,7 +26,11 @@ jobs:
         run: |
           prview --dry-run \
             "https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}" \
-            > review.md 2>/dev/null || true
+            > review.md 2>prview-err.log || true
+          if [ ! -s review.md ] && [ -s prview-err.log ]; then
+            echo "::error::prview failed:"
+            cat prview-err.log
+          fi
 
       - name: Comment on PR
         env:
