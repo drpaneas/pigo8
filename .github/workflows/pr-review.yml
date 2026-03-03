@@ -17,7 +17,7 @@ jobs:
           go-version: stable
 
       - name: Install prview
-        run: go install github.com/drpaneas/prview@latest
+        run: go install github.com/drpaneas/prview@main
 
       - name: Run prview
         env:
@@ -26,10 +26,11 @@ jobs:
         run: |
           prview --dry-run \
             "https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}" \
-            > review.md 2>prview-err.log || true
-          if [ ! -s review.md ] && [ -s prview-err.log ]; then
+            > review.md 2>prview-err.log
+          if [ $? -ne 0 ]; then
             echo "::error::prview failed:"
             cat prview-err.log
+            exit 1
           fi
 
       - name: Comment on PR
