@@ -13,6 +13,7 @@ import (
 // ProfilerSection identifies which part of the frame is being profiled
 type ProfilerSection int
 
+// Profiler sections for frame timing breakdown.
 const (
 	ProfilerSectionUpdate ProfilerSection = iota
 	ProfilerSectionDraw
@@ -83,11 +84,11 @@ type PerformanceProfiler struct {
 	totalDrawCalls     int64
 
 	// Memory tracking
-	lastMemStats     runtime.MemStats
-	allocsThisFrame  uint64
-	bytesThisFrame   uint64
-	totalAllocs      uint64
-	totalAllocBytes  uint64
+	lastMemStats    runtime.MemStats
+	allocsThisFrame uint64
+	bytesThisFrame  uint64
+	totalAllocs     uint64
+	totalAllocBytes uint64
 
 	// GPU sync tracking
 	gpuSyncCount     int64
@@ -249,14 +250,14 @@ func (pp *PerformanceProfiler) RecordCacheMiss() {
 // PerformanceReport holds a snapshot of profiler statistics
 type PerformanceReport struct {
 	// Frame timing
-	AvgFrameTime    time.Duration `json:"avg_frame_time"`
-	MaxFrameTime    time.Duration `json:"max_frame_time"`
-	MinFrameTime    time.Duration `json:"min_frame_time"`
-	CurrentFPS      float64       `json:"current_fps"`
-	AvgFPS          float64       `json:"avg_fps"`
-	TargetFPS       int           `json:"target_fps"`
-	FrameBudget     time.Duration `json:"frame_budget"`
-	BudgetUsedPct   float64       `json:"budget_used_pct"`
+	AvgFrameTime  time.Duration `json:"avg_frame_time"`
+	MaxFrameTime  time.Duration `json:"max_frame_time"`
+	MinFrameTime  time.Duration `json:"min_frame_time"`
+	CurrentFPS    float64       `json:"current_fps"`
+	AvgFPS        float64       `json:"avg_fps"`
+	TargetFPS     int           `json:"target_fps"`
+	FrameBudget   time.Duration `json:"frame_budget"`
+	BudgetUsedPct float64       `json:"budget_used_pct"`
 
 	// Section breakdown (percentage of frame)
 	SectionBreakdown map[string]float64 `json:"section_breakdown"`
@@ -266,11 +267,11 @@ type PerformanceReport struct {
 	TotalDrawCalls    int64   `json:"total_draw_calls"`
 
 	// Memory
-	AllocsPerFrame  float64 `json:"allocs_per_frame"`
-	BytesPerFrame   float64 `json:"bytes_per_frame"`
-	HeapAllocMB     float64 `json:"heap_alloc_mb"`
-	HeapInUseMB     float64 `json:"heap_in_use_mb"`
-	NumGC           uint32  `json:"num_gc"`
+	AllocsPerFrame float64 `json:"allocs_per_frame"`
+	BytesPerFrame  float64 `json:"bytes_per_frame"`
+	HeapAllocMB    float64 `json:"heap_alloc_mb"`
+	HeapInUseMB    float64 `json:"heap_in_use_mb"`
+	NumGC          uint32  `json:"num_gc"`
 
 	// Cache efficiency
 	CacheHitRate float64 `json:"cache_hit_rate"`
@@ -480,4 +481,3 @@ func GetProfilingReport() PerformanceReport {
 func PrintProfilingReport() {
 	fmt.Println(GetPerformanceProfiler().FormatReport())
 }
-
