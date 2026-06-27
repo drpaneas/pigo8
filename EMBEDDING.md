@@ -21,12 +21,14 @@ That's it! Your game binary will now include all necessary resources and work co
 
 ## What This Does
 
-PIGO8 uses two main resource files for games:
+PIGO8 uses these resource files for games:
 
 - `map.json` - Contains the game map data
 - `spritesheet.json` - Contains sprite definitions and pixel data
+- `palette.hex` - Optional custom palette
+- `music*.wav` - Optional audio files such as `music0.wav`, `music1.wav`, and so on
 
-The `go generate` command automatically creates an `embed.go` file that embeds these resources into your binary, making your game fully portable.
+The `go generate` command automatically creates an `embed.go` file that embeds these resources into your binary, registers them with PIGO8, and makes your game fully portable.
 
 ## How Resource Loading Works
 
@@ -66,7 +68,7 @@ PIGO8 provides a tool that automatically generates the necessary embedding code 
    go build
    ```
 
-The generated `embed.go` file will embed your map.json and spritesheet.json files into the binary. Your game will now work correctly even when moved to a different directory.
+The generated `embed.go` file will embed your resources into the binary. Your game will now work correctly even when moved to a different directory.
 
 ### Manual Embedding (Alternative)
 
@@ -83,16 +85,16 @@ import (
 
 // Embed the game-specific resources
 //
-//go:embed map.json spritesheet.json
+//go:embed map.json spritesheet.json music0.wav
 var resources embed.FS
 
 func init() {
  // Register the embedded resources with PIGO8
- p8.RegisterEmbeddedResources(resources, "spritesheet.json", "map.json")
+ p8.RegisterEmbeddedResources(resources, "spritesheet.json", "map.json", "music0.wav")
 }
 ```
 
-Adjust the `go:embed` directive to include only the files you have.
+Adjust the `go:embed` directive to include only the files you have. Audio files passed to `RegisterEmbeddedResources` should still follow the `music%d.wav` naming convention because playback uses numeric IDs.
 
 ## Resource Loading Priority
 

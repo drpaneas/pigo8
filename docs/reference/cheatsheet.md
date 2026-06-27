@@ -64,9 +64,12 @@ p8.GetMouseXY()          // Get mouse position
 ### Audio
 
 ```go
-p8.Music(n)              // Play music/sfx
-p8.Music(-1)             // Stop all
+p8.Music(n)              // Play audio once
+p8.Music(n, true)        // Play exclusively
+p8.MusicLoop(n)          // Play in a loop
 p8.StopMusic(n)          // Stop specific
+p8.StopMusic(-1)         // Stop all
+// F32 variants also exist: MusicF32, MusicLoopF32, StopMusicF32
 ```
 
 ### Camera

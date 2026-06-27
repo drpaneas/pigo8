@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -42,7 +44,12 @@ func TestIsValidAudioFile(t *testing.T) {
 	}{
 		{
 			name:     "valid WAV file",
-			content:  createValidWAVHeader(1000),
+			content:  createPCM16WAV(22050, []int16{0, 1000, -1000, 0}),
+			expected: true,
+		},
+		{
+			name:     "valid WAV file with extra chunk",
+			content:  createPCM16WAVWithExtraChunk(22050, "LIST", []byte{1, 2, 3, 4}, []int16{0, 1000, -1000, 0}),
 			expected: true,
 		},
 		{
@@ -57,7 +64,7 @@ func TestIsValidAudioFile(t *testing.T) {
 		},
 		{
 			name:     "invalid - zero data size",
-			content:  createValidWAVHeader(0),
+			content:  createPCM16WAV(22050, nil),
 			expected: false,
 		},
 		{
@@ -89,60 +96,57 @@ func TestIsValidAudioFile(t *testing.T) {
 	})
 }
 
-// createValidWAVHeader creates a minimal valid WAV file header with the specified data size
-func createValidWAVHeader(dataSize int) []byte {
-	header := make([]byte, 44)
+func createPCM16WAV(sampleRate int, samples []int16) []byte {
+	return createPCM16WAVWithExtraChunk(sampleRate, "", nil, samples)
+}
 
-	// RIFF marker
-	copy(header[0:4], "RIFF")
+func createPCM16WAVWithExtraChunk(sampleRate int, chunkID string, chunkData []byte, samples []int16) []byte {
+	var buf bytes.Buffer
+	const (
+		numChannels   = uint16(1)
+		bitsPerSample = uint16(16)
+		audioFormat   = uint16(1)
+	)
 
-	// File size - 8 (little-endian)
-	fileSize := 36 + dataSize
-	header[4] = byte(fileSize)
-	header[5] = byte(fileSize >> 8)
-	header[6] = byte(fileSize >> 16)
-	header[7] = byte(fileSize >> 24)
+	blockAlign := numChannels * bitsPerSample / 8
+	byteRate := uint32(sampleRate) * uint32(blockAlign)
+	dataSize := uint32(len(samples)) * uint32(blockAlign)
+	extraChunkSize := uint32(0)
+	if chunkID != "" {
+		extraChunkSize = 8 + uint32(len(chunkData))
+	}
+	riffSize := uint32(36) + dataSize + extraChunkSize
 
-	// WAVE marker
-	copy(header[8:12], "WAVE")
+	writeString := func(s string) {
+		_, _ = buf.WriteString(s)
+	}
+	writeValue := func(v any) {
+		_ = binary.Write(&buf, binary.LittleEndian, v)
+	}
 
-	// fmt subchunk marker
-	copy(header[12:16], "fmt ")
+	writeString("RIFF")
+	writeValue(riffSize)
+	writeString("WAVE")
+	writeString("fmt ")
+	writeValue(uint32(16))
+	writeValue(audioFormat)
+	writeValue(numChannels)
+	writeValue(uint32(sampleRate))
+	writeValue(byteRate)
+	writeValue(blockAlign)
+	writeValue(bitsPerSample)
+	if chunkID != "" {
+		writeString(chunkID)
+		writeValue(uint32(len(chunkData)))
+		_, _ = buf.Write(chunkData)
+	}
+	writeString("data")
+	writeValue(dataSize)
+	for _, sample := range samples {
+		writeValue(sample)
+	}
 
-	// fmt subchunk size (16 for PCM)
-	header[16] = 16
-
-	// Audio format (1 = PCM)
-	header[20] = 1
-
-	// Number of channels (1 = mono)
-	header[22] = 1
-
-	// Sample rate (44100)
-	header[24] = 0x44
-	header[25] = 0xAC
-
-	// Byte rate (44100 * 1 * 16/8 = 88200)
-	header[28] = 0x88
-	header[29] = 0x58
-	header[30] = 0x01
-
-	// Block align (1 * 16/8 = 2)
-	header[32] = 2
-
-	// Bits per sample (16)
-	header[34] = 16
-
-	// data subchunk marker
-	copy(header[36:40], "data")
-
-	// Data size (little-endian)
-	header[40] = byte(dataSize)
-	header[41] = byte(dataSize >> 8)
-	header[42] = byte(dataSize >> 16)
-	header[43] = byte(dataSize >> 24)
-
-	return header
+	return buf.Bytes()
 }
 
 func TestVerboseFlag(t *testing.T) {

@@ -93,13 +93,13 @@ func main() {
 }
 ```
 
-**Note**: *If you have any of the `spritesheet.json`, `map.json`, `palette.json` or any `music*.wav` files in the same directory as your game, PIGO8 can automatically load them. To do that, you need to put at the top of your `main.go` the following line:*
+**Note**: *If you have `spritesheet.json`, `map.json`, `palette.hex`, or audio files such as `music0.wav`, `music1.wav`, and so on in the same directory as your game, PIGO8 can load them once they are embedded and registered. Add the following line at the top of your `main.go`:*
 
 ```go
 //go:generate go run github.com/drpaneas/pigo8/cmd/embedgen -dir .
 ```
 
-And run `go generate` to generate the embedded files.
+Then run `go generate` to generate the embedded files.
 
 ### Web Export (Play in Browser)
 

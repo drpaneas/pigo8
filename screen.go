@@ -4,7 +4,6 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
-	"image"
 	"image/color"
 	_ "image/png" // Keep in case other PNGs are loaded
 	"log"
@@ -940,37 +939,6 @@ func initShadowBuffer(width, height int) {
 	}
 }
 
-// pixelOverlay is a temporary image for compositing Pset pixels
-var pixelOverlay *ebiten.Image
-
-// flushPixelBuffer uploads all pending pixel changes to the GPU
-// Uses alpha blending so Pset pixels overlay shapes without erasing them
-func flushPixelBuffer() {
-	pixelBufferMutex.Lock()
-	defer pixelBufferMutex.Unlock()
-
-	if bufferDirty && currentScreen != nil && len(pixelBuffer) > 0 {
-		// Create or reuse overlay image
-		if pixelOverlay == nil || pixelOverlay.Bounds().Dx() != pixelBufferWidth || pixelOverlay.Bounds().Dy() != pixelBufferHeight {
-			pixelOverlay = ebiten.NewImage(pixelBufferWidth, pixelBufferHeight)
-		}
-
-		// Write pixels to overlay (includes transparent pixels where nothing was set)
-		pixelOverlay.WritePixels(pixelBuffer)
-
-		// Draw overlay onto screen with alpha blending
-		// Transparent pixels (alpha=0) won't overwrite the destination
-		opts := &ebiten.DrawImageOptions{}
-		opts.Blend = ebiten.BlendSourceOver
-		currentScreen.DrawImage(pixelOverlay, opts)
-
-		bufferDirty = false
-
-		// Update screen pixel cache after flushing
-		updateScreenPixelCache()
-	}
-}
-
 // setPixelInBuffer sets a pixel in the buffer without immediate GPU upload
 func setPixelInBuffer(x, y int, clr color.Color) {
 	if x < 0 || x >= pixelBufferWidth || y < 0 || y >= pixelBufferHeight {
@@ -998,25 +966,6 @@ func setPixelInBuffer(x, y int, clr color.Color) {
 		shadowBuffer[offset+2] = bByte
 		shadowBuffer[offset+3] = aByte
 	}
-}
-
-// clearPixelBuffer clears the pixel buffer and marks it as clean
-func clearPixelBuffer() {
-	pixelBufferMutex.Lock()
-	defer pixelBufferMutex.Unlock()
-
-	if len(pixelBuffer) > 0 {
-		for i := range pixelBuffer {
-			pixelBuffer[i] = 0
-		}
-		bufferDirty = false
-	}
-
-	// Also clear shadow buffer
-	clearShadowBuffer()
-
-	// Also invalidate screen pixel cache
-	invalidateScreenPixelCache()
 }
 
 // clearShadowBuffer clears the CPU shadow buffer
@@ -1060,50 +1009,6 @@ func MarkShadowBufferDirty() {
 // Kept for backward compatibility.
 func MarkShadowBufferDirtyFromSprite() {
 	MarkShadowBufferDirty()
-}
-
-// drawPixelImmediate draws a single pixel directly to the screen.
-// This preserves draw order by not using buffering.
-func drawPixelImmediate(x, y int, clr color.Color) {
-	if currentScreen == nil {
-		return
-	}
-
-	// Check bounds against the current screen
-	bounds := currentScreen.Bounds()
-	if x < bounds.Min.X || x >= bounds.Max.X || y < bounds.Min.Y || y >= bounds.Max.Y {
-		return // Silently ignore out-of-bounds pixels
-	}
-
-	// Initialize shadow buffer if needed
-	if shadowBuffer == nil {
-		initShadowBuffer(GetScreenWidth(), GetScreenHeight())
-	}
-
-	// Create a 1x1 pixel buffer
-	r, g, b, a := clr.RGBA()
-	rByte := uint8(r >> 8)
-	gByte := uint8(g >> 8)
-	bByte := uint8(b >> 8)
-	aByte := uint8(a >> 8)
-
-	singlePixel := []byte{rByte, gByte, bByte, aByte}
-
-	// Get a 1x1 sub-image at the target position and write the pixel
-	subImg := currentScreen.SubImage(image.Rect(x, y, x+1, y+1)).(*ebiten.Image)
-	subImg.WritePixels(singlePixel)
-
-	// Also update shadow buffer (for Pget without GPU sync)
-	if shadowBuffer != nil && shadowBufferValid &&
-		x >= 0 && x < shadowBufferWidth && y >= 0 && y < shadowBufferHeight {
-		offset := (y*shadowBufferWidth + x) * 4
-		if offset+3 < len(shadowBuffer) {
-			shadowBuffer[offset] = rByte
-			shadowBuffer[offset+1] = gByte
-			shadowBuffer[offset+2] = bByte
-			shadowBuffer[offset+3] = aByte
-		}
-	}
 }
 
 // syncShadowBufferFromGPU syncs the shadow buffer from the GPU.

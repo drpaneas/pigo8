@@ -38,6 +38,6 @@ go run .
 // - Ball physics and collision detection
 // - AI paddle opponent
 // - Score tracking
-// - Sound effects with p8.Sfx()
+// - Sound effects with p8.Music()
 ```
 

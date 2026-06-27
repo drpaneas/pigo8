@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"strings"
 )
 
 const none = "none"
@@ -42,13 +41,14 @@ func RegisterEmbeddedResources(resources fs.FS, spritesheetPath, mapPath string,
 		}
 	}
 
-	customResources = &embeddedResources{
+	newResources := &embeddedResources{
 		FS:              resources,
 		SpritesheetPath: spritesheetPath,
 		MapPath:         mapPath,
 		PalettePath:     palettePath,
 		AudioPaths:      filteredAudioPaths,
 	}
+	setCustomResources(newResources)
 
 	// Format spritesheet, map, and palette paths for logging, showing "none" if empty
 	spritesheetDisplay := spritesheetPath
@@ -68,7 +68,10 @@ func RegisterEmbeddedResources(resources fs.FS, spritesheetPath, mapPath string,
 
 	log.Printf("Registered custom embedded resources: spritesheet=%s, map=%s, palette=%s, audio files=%d", spritesheetDisplay, mapDisplay, paletteDisplay, len(filteredAudioPaths))
 
-	// Automatically initialize audio if there are audio files
+	// Refresh shared audio state whenever embedded resources are updated.
+	reloadAudioRuntimeState()
+
+	// Automatically initialize audio if there are audio files.
 	if len(filteredAudioPaths) > 0 || hasEmbeddedAudioFiles(resources) {
 		initAudioPlayer()
 		log.Println("Audio system initialized automatically")
@@ -85,15 +88,16 @@ func tryLoadEmbeddedFile(defaultPath string, isMap bool) ([]byte, bool) {
 	}
 
 	// First try custom resources if registered
-	if customResources != nil {
+	resources := getCustomResources()
+	if resources != nil {
 		var path string
 		if isMap {
-			path = customResources.MapPath
+			path = resources.MapPath
 		} else {
-			path = customResources.SpritesheetPath
+			path = resources.SpritesheetPath
 		}
 
-		data, err := fs.ReadFile(customResources.FS, path)
+		data, err := fs.ReadFile(resources.FS, path)
 		if err == nil {
 			fileType := "spritesheet"
 			if isMap {
@@ -125,7 +129,7 @@ func autoDetectResources() {
 	autoDetectResourcesAttempted = true
 
 	// Don't override if already registered
-	if customResources != nil {
+	if getCustomResources() != nil {
 		return
 	}
 
@@ -201,7 +205,7 @@ func hasEmbeddedAudioFiles(resources fs.FS) bool {
 		}
 
 		// Check if the file is a music*.wav file
-		if strings.HasPrefix(filepath.Base(path), "music") && strings.HasSuffix(path, ".wav") {
+		if _, parseErr := parseAudioFileID(path); parseErr == nil {
 			hasAudio = true
 			return fs.SkipAll // Stop walking once we find one audio file
 		}
@@ -224,11 +228,11 @@ func initAudioPlayer() {
 		return
 	}
 
-	// Check if any audio files were loaded
-	if len(ap.musicData) == 0 {
+	// Check if any audio files were loaded.
+	if sharedAudioFileCount() == 0 {
 		log.Println("Warning: Audio player initialized but no audio files were loaded")
 	} else {
-		log.Printf("Audio system initialized successfully with %d audio files", len(ap.musicData))
+		log.Printf("Audio system initialized successfully with %d audio files", sharedAudioFileCount())
 	}
 }
 

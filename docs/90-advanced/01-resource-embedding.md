@@ -40,7 +40,7 @@ import (
     p8 "github.com/drpaneas/pigo8"
 )
 
-//go:embed spritesheet.json map.json
+//go:embed spritesheet.json map.json music0.wav music1.wav
 var resources embed.FS
 
 func init() {
@@ -48,10 +48,13 @@ func init() {
         resources,
         "spritesheet.json",
         "map.json",
-        "",  // No palette
+        "music0.wav",
+        "music1.wav",
     )
 }
 ```
+
+Audio files passed to `RegisterEmbeddedResources` should still use the `music%d.wav` naming convention because the playback APIs address them by numeric ID.
 
 ## Loading Priority
 
@@ -88,7 +91,7 @@ my-game/
 ├── spritesheet.json
 ├── map.json
 ├── palette.hex
-└── music1.wav
+└── music0.wav
 ```
 
 `main.go`:

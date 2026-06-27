@@ -60,7 +60,7 @@ my-game/
 ├── spritesheet.json     # Sprite definitions
 ├── map.json             # Tile map data
 ├── palette.hex          # Custom color palette (optional)
-├── music1.wav           # Sound effects (optional)
+├── music0.wav           # Sound effects / music (optional)
 └── go.mod
 ```
 

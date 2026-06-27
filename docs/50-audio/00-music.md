@@ -1,85 +1,84 @@
 # Audio
 
-PIGO8 plays WAV files for sound effects and music.
+PIGO8 plays embedded WAV files named `music0.wav`, `music1.wav`, and so on.
 
 ## Setting Up Audio
 
-Name your audio files `music1.wav`, `music2.wav`, etc., and place them in your project directory.
-
-## Music Function
+Add this line near the top of your `main.go`:
 
 ```go
-p8.Music(n)           // Play audio file n
-p8.Music(n, true)     // Play exclusively (stops other audio)
-p8.Music(-1)          // Stop all audio
+//go:generate go run github.com/drpaneas/pigo8/cmd/embedgen -dir .
 ```
 
-### Examples
+Then run:
+
+```bash
+go generate
+```
+
+The generated `embed.go` registers your `music*.wav` files with PIGO8. Audio is loaded from registered embedded resources, so make sure you run `go generate` after adding or renaming audio files.
+
+## Playback APIs
 
 ```go
-// Play sound effect 1
+p8.Music(n)              // Play audio file n
+p8.Music(n, true)        // Play n exclusively (stops/rewinds other audio)
+p8.MusicLoop(n)          // Play n in a loop
+p8.MusicLoop(n, true)    // Loop n exclusively
+p8.StopMusic(n)          // Stop a specific audio ID
+p8.StopMusic(-1)         // Stop all audio
+```
+
+For advanced control, `p8.MusicWithOptions(...)` is also available.
+
+## Important Behavior
+
+- `p8.Music(n, true)` is exclusive playback. It does not enable looping.
+- Use `p8.MusicLoop(...)` or `p8.MusicWithOptions(..., p8.MusicOptions{Loop: true})` for looping music.
+- Calling `p8.Music(n)` again while the same ID is already playing does not restart it. Stop it first or use exclusive playback if you want to restart from the beginning.
+- The float32 APIs `p8.MusicF32`, `p8.MusicLoopF32`, and `p8.StopMusicF32` exist for advanced use. The default `p8.Music` APIs are the simpler choice for most games.
+- The legacy and float32 APIs keep separate playback state. Use one family consistently for a given track session instead of assuming `StopMusic(...)` will stop audio started with `MusicF32(...)`.
+
+## Examples
+
+```go
+// Play a one-shot sound effect.
 p8.Music(1)
 
-// Play background music, stop other sounds
-p8.Music(0, true)
+// Start looping background music and stop any other tracks.
+p8.MusicLoop(0, true)
 
-// Play jump sound
-func (g *game) jump() {
-    g.velocityY = -5
-    p8.Music(2)  // Jump sound effect
-}
+// Stop that looping track later.
+p8.StopMusic(0)
 ```
 
-## StopMusic Function
-
 ```go
-p8.StopMusic(-1)  // Stop all audio
-p8.StopMusic(1)   // Stop specific audio
+func (g *game) Update() {
+    if p8.Btnp(p8.O) {
+        p8.Music(2) // Fire sound
+    }
+
+    if g.hitEnemy() {
+        p8.Music(3) // Hit sound
+    }
+}
+
+func (g *game) Init() {
+    p8.MusicLoop(0, true)
+}
 ```
 
 ## Audio Tips
 
 ### Short Sound Effects
 
-Keep sound effects short (< 1 second) for responsive gameplay.
+Keep sound effects short for responsive gameplay.
 
 ### Background Music
 
-For looping music, ensure your WAV file loops cleanly.
+For looping tracks, edit the WAV so the start and end join cleanly.
 
 ### Web Browsers
 
-Due to browser autoplay policies, audio starts only after user interaction. The web export handles this automatically.
-
-## Example: Game with Sound
-
-```go
-func (g *game) Update() {
-    // Player movement with footstep sound
-    if p8.Btn(p8.LEFT) || p8.Btn(p8.RIGHT) {
-        if g.frame % 20 == 0 {  // Every 20 frames
-            p8.Music(4)  // Footstep sound
-        }
-    }
-    
-    // Collision sound
-    if g.hitEnemy() {
-        p8.Music(3)  // Hit sound
-    }
-}
-
-func (g *game) Init() {
-    p8.Music(0, true)  // Start background music
-}
-```
-
-## Embedding Audio
-
-For standalone builds, embed audio files:
-
-```go
-//go:generate go run github.com/drpaneas/pigo8/cmd/embedgen -dir .
-```
-
-The embedgen tool automatically detects and embeds `music*.wav` files.
+Browser autoplay policies require user interaction before audio starts. The web export handles this after the first button press.
 

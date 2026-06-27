@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/hajimehoshi/ebiten/v2/audio/wav"
 )
 
 func main() {
@@ -85,7 +87,7 @@ func main() {
 
 	// If no resources were found, exit
 	if !resourcesFound {
-		fmt.Printf("Warning: No resources (map.json, spritesheet.json, palette.hex, or audio*.wav) found in %s\n", outputDir)
+		fmt.Printf("Warning: No resources (map.json, spritesheet.json, palette.hex, or music*.wav) found in %s\n", outputDir)
 
 		// Check if an embed.go file exists and remove it if it does
 		embedGoPath := filepath.Join(outputDir, "embed.go")
@@ -220,37 +222,23 @@ func isValidAudioFile(filename string) bool {
 		}
 	}()
 
-	// Read the WAV header (first 44 bytes)
-	header := make([]byte, 44)
-	_, err = file.Read(header)
+	stream, err := wav.DecodeWithoutResampling(file)
 	if err != nil {
 		if verbose {
-			fmt.Printf("Error reading header from %s: %v\n", filename, err)
+			fmt.Printf("File %s is not a valid WAV file: %v\n", filename, err)
 		}
 		return false
 	}
 
-	// Check if it's a valid WAV file by looking for the RIFF and WAVE markers
-	if string(header[0:4]) != "RIFF" || string(header[8:12]) != "WAVE" {
+	if stream.Length() <= 0 {
 		if verbose {
-			fmt.Printf("File %s is not a valid WAV file (missing RIFF/WAVE markers)\n", filename)
+			fmt.Printf("File %s has no audio data (decoded stream length is %d)\n", filename, stream.Length())
 		}
 		return false
 	}
 
-	// Check if the file has audio data by looking at the data chunk size
-	// The data chunk size is at bytes 40-43 in little-endian format
-	dataSize := int(header[40]) + int(header[41])<<8 + int(header[42])<<16 + int(header[43])<<24
-	if dataSize <= 0 {
-		if verbose {
-			fmt.Printf("File %s has no audio data (data chunk size is %d)\n", filename, dataSize)
-		}
-		return false
-	}
-
-	// The file seems to be a valid WAV file with audio data
 	if verbose {
-		fmt.Printf("Including audio file: %s (data size: %d bytes)\n", filename, dataSize)
+		fmt.Printf("Including audio file: %s (decoded size: %d bytes)\n", filename, stream.Length())
 	}
 	return true
 }

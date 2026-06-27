@@ -10,8 +10,10 @@ A demonstration of audio playback built with [PIGO8](https://github.com/drpaneas
 
 This example demonstrates audio functionality in PIGO8:
 - Playing music files with `p8.Music()`
-- Stopping music with `p8.Music(-1)` or `p8.StopMusic()`
+- Looping music with `p8.MusicLoop()`
 - Exclusive playback mode (stops other tracks when starting)
+- Stopping a specific track with `p8.StopMusic(id)`
+- Stopping all music with `p8.StopMusic(-1)`
 - Loading multiple audio files (music0.wav through music63.wav)
 
 ### Controls
@@ -20,7 +22,9 @@ This example demonstrates audio functionality in PIGO8:
 - **Down Arrow**: Play music 4
 - **Left Arrow**: Play music 5
 - **Right Arrow**: Play music 6 (exclusive mode)
-- **Up + Down**: Stop all music
+- **Z / O button**: Loop music 0 exclusively
+- **X button**: Stop music 0
+- **Enter / Start**: Stop all music
 
 ## ⚙️ Requirements
 
@@ -54,20 +58,26 @@ type Game struct{}
 func (g *Game) Init() {}
 
 func (g *Game) Update() {
-	if p8.Btn(p8.UP) {
+	if p8.Btnp(p8.UP) {
 		p8.Music(3)
 	}
-	if p8.Btn(p8.DOWN) {
+	if p8.Btnp(p8.DOWN) {
 		p8.Music(4)
 	}
-	if p8.Btn(p8.LEFT) {
+	if p8.Btnp(p8.LEFT) {
 		p8.Music(5)
 	}
-	if p8.Btn(p8.RIGHT) {
+	if p8.Btnp(p8.RIGHT) {
 		p8.Music(6, true) // Exclusive - stops other music
 	}
-	if p8.Btn(p8.UP) && p8.Btn(p8.DOWN) {
-		p8.Music(-1) // Stop all music
+	if p8.Btnp(p8.O) {
+		p8.MusicLoop(0, true) // Loop music 0 exclusively
+	}
+	if p8.Btnp(p8.X) {
+		p8.StopMusic(0) // Stop a specific track
+	}
+	if p8.Btnp(p8.ButtonStart) {
+		p8.StopMusic(-1) // Stop all music
 	}
 }
 
@@ -78,7 +88,9 @@ func (g *Game) Draw() {
 	p8.Print("Down: music 4", 10, 45, 7)
 	p8.Print("Left: music 5", 10, 55, 7)
 	p8.Print("Right: music 6 (exclusive)", 10, 65, 7)
-	p8.Print("Up+Down: stop all", 10, 75, 7)
+	p8.Print("O: loop music 0", 10, 75, 7)
+	p8.Print("X: stop music 0", 10, 85, 7)
+	p8.Print("Start: stop all", 10, 95, 7)
 }
 
 func main() {
