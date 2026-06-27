@@ -154,13 +154,13 @@ func Rect[X1 Number, Y1 Number, X2 Number, Y2 Number](x1 X1, y1 Y1, x2 X2, y2 Y2
 	rightX := rectX + rectW - 1
 
 	// Top horizontal line
-	vector.DrawFilledRect(currentScreen, leftX, topY, rectW, 1, actualColor, false)
+	vector.FillRect(currentScreen, leftX, topY, rectW, 1, actualColor, false)
 	// Bottom horizontal line
-	vector.DrawFilledRect(currentScreen, leftX, bottomY, rectW, 1, actualColor, false)
+	vector.FillRect(currentScreen, leftX, bottomY, rectW, 1, actualColor, false)
 	// Left vertical line (height adjusted to avoid drawing corners twice)
-	vector.DrawFilledRect(currentScreen, leftX, topY+1, 1, rectH-2, actualColor, false)
+	vector.FillRect(currentScreen, leftX, topY+1, 1, rectH-2, actualColor, false)
 	// Right vertical line (height adjusted to avoid drawing corners twice)
-	vector.DrawFilledRect(currentScreen, rightX, topY+1, 1, rectH-2, actualColor, false)
+	vector.FillRect(currentScreen, rightX, topY+1, 1, rectH-2, actualColor, false)
 
 	// Mark shadow buffer as dirty so Pget() will sync from GPU
 	MarkShadowBufferDirtyFromSprite()
@@ -234,7 +234,7 @@ func Rectfill[X1 Number, Y1 Number, X2 Number, Y2 Number](x1 X1, y1 Y1, x2 X2, y
 	actualColor := pico8Palette[mappedColorIndex]
 
 	// Draw filled rectangle using Ebitengine vector graphics
-	vector.DrawFilledRect(
+	vector.FillRect(
 		currentScreen,
 		rectX,
 		rectY,
@@ -456,7 +456,7 @@ func Circfill[X Number, Y Number, R Number](x X, y Y, radius R, options ...inter
 	actualColor := pico8Palette[mappedColorIndex]
 
 	// Draw the filled circle using Ebitengine vector graphics
-	vector.DrawFilledCircle(
+	vector.FillCircle(
 		currentScreen,
 		circX,
 		circY,

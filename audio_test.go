@@ -171,7 +171,12 @@ func TestPrepareF32PlaybackResamplesToSharedRate(t *testing.T) {
 
 	var expectedStream io.ReadSeeker = decoded
 	if decoded.SampleRate() != sampleRate {
-		expectedStream = audio.ResampleF32(decoded, decoded.Length(), decoded.SampleRate(), sampleRate)
+		resampled := audio.ResampleReaderF32(decoded, decoded.Length(), decoded.SampleRate(), sampleRate)
+		buf, err := io.ReadAll(resampled)
+		if err != nil {
+			t.Fatalf("io.ReadAll(resampled) error = %v", err)
+		}
+		expectedStream = bytes.NewReader(buf)
 	}
 
 	wantLength, err := playbackStreamLength(expectedStream)

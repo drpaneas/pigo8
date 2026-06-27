@@ -142,7 +142,12 @@ func prepareF32Playback(audioData []byte) (preparedPlayback, error) {
 
 	var stream io.ReadSeeker = wavReader
 	if wavReader.SampleRate() != sampleRate {
-		stream = audio.ResampleF32(wavReader, wavReader.Length(), wavReader.SampleRate(), sampleRate)
+		resampled := audio.ResampleReaderF32(wavReader, wavReader.Length(), wavReader.SampleRate(), sampleRate)
+		buf, err := io.ReadAll(resampled)
+		if err != nil {
+			return preparedPlayback{}, err
+		}
+		stream = bytes.NewReader(buf)
 	}
 
 	return newPreparedPlayback(stream)
