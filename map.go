@@ -78,6 +78,8 @@ var (
 	worldMapStream             *tilemapStream
 	activeTileBufferInstance   *activeTileBuffer
 	streamingSystemInitialized bool
+	streamingInitErr           error
+	streamingInitializer       = initializeStreamingMapSystem
 	streamingInitMutex         sync.Mutex
 	worldMapMutex              sync.RWMutex // Protects worldMapStream
 	activeBufferMutex          sync.RWMutex // Protects activeTileBufferInstance
@@ -267,7 +269,10 @@ func Map(args ...any) {
 //	mapG(mx, my, sx, sy, w, h) // Draw map with custom dimensions
 //	mapG(mx, my, sx, sy, w, h, layers) // Draw map with layer filtering
 func mapG[MX Number, MY Number](mx MX, my MY, args ...any) {
-	ensureStreamingSystemInitialized()
+	if err := ensureStreamingSystemInitialized(); err != nil {
+		log.Printf("Map(): streaming system unavailable: %v", err)
+		return
+	}
 
 	// Convert generic mx, my to required types
 	mapX := int(mx)
@@ -348,16 +353,19 @@ func initializeStreamingMapSystem() error {
 // This function is responsible for calling initializeStreamingMapSystem once,
 // loading spritesheets, and setting up map cache parameters.
 // It should be called by map-accessing functions like Mget, Mset, Map.
-func ensureStreamingSystemInitialized() {
+func ensureStreamingSystemInitialized() error {
 	if streamingSystemInitialized {
-		return
+		return nil
 	}
 
 	streamingInitMutex.Lock()
 	defer streamingInitMutex.Unlock()
 
 	if streamingSystemInitialized {
-		return
+		return nil
+	}
+	if streamingInitErr != nil {
+		return streamingInitErr
 	}
 
 	log.Println("EnsureStreamingSystemInitialized: Initializing...")
@@ -381,9 +389,10 @@ func ensureStreamingSystemInitialized() {
 		}
 	}
 
-	if err := initializeStreamingMapSystem(); err != nil {
-		streamingInitMutex.Unlock()                                                                                   // Unlock before fatal logging
-		log.Fatalf("EnsureStreamingSystemInitialized: CRITICAL - Failed to initialize streaming map system: %v", err) //nolint:gocritic
+	if err := streamingInitializer(); err != nil {
+		streamingInitErr = fmt.Errorf("failed to initialize streaming map system: %w", err)
+		log.Printf("EnsureStreamingSystemInitialized: %v", streamingInitErr)
+		return streamingInitErr
 	}
 
 	mapCacheIsValid = false
@@ -405,7 +414,9 @@ func ensureStreamingSystemInitialized() {
 	log.Printf("EnsureStreamingSystemInitialized: Map cache parameters set (Width: %d tiles, Height: %d tiles).", mapCacheWidthInTiles, mapCacheHeightInTiles)
 
 	log.Println("EnsureStreamingSystemInitialized: System ready.")
+	streamingInitErr = nil
 	streamingSystemInitialized = true
+	return nil
 }
 
 // parseMapArgs parses the optional arguments for the Map functions
@@ -646,7 +657,10 @@ func loadRegionIntoActiveBuffer(targetWorldX, targetWorldY int) error {
 // Mget returns the sprite number at the specified map coordinates.
 // This mimics PICO-8's mget(column, row) function.
 func Mget[C Number, R Number](column C, row R) int {
-	ensureStreamingSystemInitialized()
+	if err := ensureStreamingSystemInitialized(); err != nil {
+		log.Printf("Mget: streaming system unavailable: %v", err)
+		return 0
+	}
 
 	col := int(column)
 	r := int(row)
@@ -714,7 +728,10 @@ func Mget[C Number, R Number](column C, row R) int {
 // Mset sets the sprite number at the specified map coordinates.
 // This mimics PICO-8's mset(column, row, sprite) function.
 func Mset[C Number, R Number, S Number](column C, row R, sprite S) {
-	ensureStreamingSystemInitialized()
+	if err := ensureStreamingSystemInitialized(); err != nil {
+		log.Printf("Mset: streaming system unavailable: %v", err)
+		return
+	}
 
 	col := int(column)
 	r := int(row)
@@ -761,7 +778,10 @@ func Mset[C Number, R Number, S Number](column C, row R, sprite S) {
 // The data slice should contain DefaultPico8MapHeight * DefaultPico8MapWidth bytes,
 // representing sprite IDs in row-major order.
 func SetMap(data []byte) {
-	ensureStreamingSystemInitialized()
+	if err := ensureStreamingSystemInitialized(); err != nil {
+		log.Printf("SetMap: streaming system unavailable: %v", err)
+		return
+	}
 
 	expectedLen := defaultPico8MapWidth * defaultPico8MapHeight
 	if len(data) != expectedLen {

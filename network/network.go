@@ -3,6 +3,7 @@ package network
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -89,11 +90,13 @@ type Manager struct {
 	onGameState   func(playerID string, data []byte)
 	onPlayerInput func(playerID string, data []byte)
 	// State
-	isRunning         bool
 	mutex             sync.Mutex
 	connectionLost    bool
 	waitingForPlayers bool
 	networkError      string
+	done              chan struct{}
+	stopOnce          sync.Once
+	workers           sync.WaitGroup
 	// Heartbeat
 	heartbeatTicker   *time.Ticker
 	heartbeatInterval time.Duration
@@ -109,15 +112,14 @@ var (
 
 // InitNetwork initializes the networking system with the given configuration
 func InitNetwork(config *Config) error {
-	networkMutex.Lock()
-	defer networkMutex.Unlock()
-
 	// Save existing callbacks if we have a network manager
 	var onConnect func(string)
 	var onDisconnect func(string)
 	var onGameState func(string, []byte)
 	var onPlayerInput func(string, []byte)
+	var previousManager *Manager
 
+	networkMutex.Lock()
 	if networkManager != nil {
 		// Save the existing callbacks
 		onConnect = networkManager.onConnect
@@ -129,32 +131,25 @@ func InitNetwork(config *Config) error {
 		log.Printf("Preserving existing callbacks: onConnect=%v, onDisconnect=%v, onGameState=%v, onPlayerInput=%v",
 			onConnect != nil, onDisconnect != nil, onGameState != nil, onPlayerInput != nil)
 
-		// Clean up the existing network manager
-		ShutdownNetwork() // Use the global shutdown function
+		previousManager = networkManager
+		networkManager = nil
 	}
+	networkMutex.Unlock()
 
-	// Define localhost addresses as constants
-	const (
-		localhostName = "localhost"
-		localhostIP   = "127.0.0.1"
-	)
-
-	// If this is a server and address is localhost, use 0.0.0.0 to listen on all interfaces
-	if config.Role == RoleServer && (config.Address == localhostName || config.Address == localhostIP) {
-		log.Printf("Server will listen on all interfaces (0.0.0.0) instead of %s", config.Address)
-		config.Address = "0.0.0.0"
+	if previousManager != nil {
+		previousManager.shutdownAndWait()
 	}
 
 	// Create a new network manager
-	networkManager = &Manager{
+	manager := &Manager{
 		config:            config,
 		incomingMsgs:      make(chan networkMessage, config.BufferSize),
 		outgoingMsgs:      make(chan networkMessage, config.BufferSize),
 		clients:           make(map[string]*net.UDPAddr),
 		lastHeard:         make(map[string]time.Time),
-		isRunning:         true,
 		waitingForPlayers: config.Role == RoleServer, // Server starts waiting for players
 		heartbeatInterval: 2 * time.Second,           // Send heartbeat every 2 seconds
+		done:              make(chan struct{}),
 		// Restore the callbacks
 		onConnect:     onConnect,
 		onDisconnect:  onDisconnect,
@@ -163,53 +158,76 @@ func InitNetwork(config *Config) error {
 	}
 
 	// Start network processing in background
-	go networkManager.processMessages()
+	manager.startWorker(manager.processMessages)
 
 	// Start server or client based on role
 	var err error
 	if config.Role == RoleServer {
-		err = networkManager.startServer()
+		err = manager.startServer()
 	} else {
-		err = networkManager.connectToServer()
+		err = manager.connectToServer()
+	}
+	if err != nil {
+		manager.shutdownAndWait()
+		return err
 	}
 
-	return err
+	networkMutex.Lock()
+	networkManager = manager
+	networkMutex.Unlock()
+	return nil
 }
 
 // ShutdownNetwork closes all network connections and stops processing
 func ShutdownNetwork() {
 	networkMutex.Lock()
-	defer networkMutex.Unlock()
-
-	if networkManager == nil {
-		return
-	}
-
-	networkManager.mutex.Lock()
-	networkManager.isRunning = false
-	networkManager.mutex.Unlock()
-
-	// Stop heartbeat ticker if it exists
-	if networkManager.heartbeatTicker != nil {
-		networkManager.heartbeatTicker.Stop()
-	}
-
-	// Close UDP connection
-	if networkManager.udpConn != nil {
-		if err := networkManager.udpConn.Close(); err != nil {
-			log.Printf("Error closing UDP connection: %v", err)
-		}
-	}
-
-	// In UDP we don't need to close client connections since they're just addresses
-	// But we can clear the maps
-	networkManager.mutex.Lock()
-	networkManager.clients = make(map[string]*net.UDPAddr)
-	networkManager.lastHeard = make(map[string]time.Time)
-	networkManager.mutex.Unlock()
-
-	// Clear the manager
+	manager := networkManager
 	networkManager = nil
+	networkMutex.Unlock()
+
+	if manager != nil {
+		manager.shutdownAndWait()
+	}
+}
+
+func (nm *Manager) startWorker(fn func()) {
+	nm.workers.Add(1)
+	go func() {
+		defer nm.workers.Done()
+		fn()
+	}()
+}
+
+func (nm *Manager) isStopped() bool {
+	select {
+	case <-nm.done:
+		return true
+	default:
+		return false
+	}
+}
+
+func (nm *Manager) shutdownAndWait() {
+	nm.stopOnce.Do(func() {
+		close(nm.done)
+
+		if nm.heartbeatTicker != nil {
+			nm.heartbeatTicker.Stop()
+		}
+
+		if nm.udpConn != nil {
+			if err := nm.udpConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+				log.Printf("Error closing UDP connection: %v", err)
+			}
+		}
+	})
+
+	nm.workers.Wait()
+
+	nm.mutex.Lock()
+	nm.clients = make(map[string]*net.UDPAddr)
+	nm.lastHeard = make(map[string]time.Time)
+	nm.mutex.Unlock()
 }
 
 // --- Server Functions ---
@@ -219,12 +237,6 @@ func (nm *Manager) startServer() error {
 	// Parse the UDP address to listen on
 	addr := net.JoinHostPort(nm.config.Address, fmt.Sprintf("%d", nm.config.Port))
 	log.Printf("Starting UDP server on %s...", addr)
-
-	// Try to listen on all interfaces if address is localhost
-	if nm.config.Address == "localhost" || nm.config.Address == "127.0.0.1" {
-		log.Printf("Using 0.0.0.0 instead of localhost to listen on all interfaces")
-		addr = net.JoinHostPort("0.0.0.0", fmt.Sprintf("%d", nm.config.Port))
-	}
 
 	// Resolve the UDP address
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
@@ -247,17 +259,19 @@ func (nm *Manager) startServer() error {
 
 	// Start the heartbeat ticker
 	nm.heartbeatTicker = time.NewTicker(nm.heartbeatInterval)
-	go func() {
-		for range nm.heartbeatTicker.C {
-			if !nm.isRunning {
+	nm.startWorker(func() {
+		for {
+			select {
+			case <-nm.done:
 				return
+			case <-nm.heartbeatTicker.C:
+				nm.sendHeartbeats()
 			}
-			nm.sendHeartbeats()
 		}
-	}()
+	})
 
 	// Start receiving messages in background
-	go nm.receiveMessages()
+	nm.startWorker(nm.receiveMessages)
 	return nil
 }
 
@@ -301,11 +315,11 @@ func (nm *Manager) receiveMessages() {
 	// Buffer for incoming messages
 	buffer := make([]byte, 4096)
 
-	for nm.isRunning {
+	for {
 		// Read from UDP connection
 		n, addr, err := nm.udpConn.ReadFromUDP(buffer)
 		if err != nil {
-			if !nm.isRunning {
+			if nm.isStopped() || errors.Is(err, net.ErrClosed) {
 				// Normal shutdown
 				return
 			}
@@ -314,7 +328,12 @@ func (nm *Manager) receiveMessages() {
 		}
 
 		// Process the message
-		go nm.handleUDPMessage(buffer[:n], addr)
+		dataCopy := make([]byte, n)
+		copy(dataCopy, buffer[:n])
+		addrCopy := &net.UDPAddr{IP: append([]byte(nil), addr.IP...), Port: addr.Port, Zone: addr.Zone}
+		nm.startWorker(func() {
+			nm.handleUDPMessage(dataCopy, addrCopy)
+		})
 	}
 }
 
@@ -326,13 +345,9 @@ func (nm *Manager) handleUDPMessage(data []byte, addr *net.UDPAddr) {
 		return
 	}
 
-	// Make a copy of the data to avoid concurrent modification issues
-	dataCopy := make([]byte, len(data))
-	copy(dataCopy, data)
-
 	// Decode the message
 	var msg networkMessage
-	if err := json.Unmarshal(dataCopy, &msg); err != nil {
+	if err := json.Unmarshal(data, &msg); err != nil {
 		log.Printf("Error decoding UDP message: %v", err)
 		return
 	}
@@ -426,6 +441,8 @@ func (nm *Manager) handleUDPMessage(data []byte, addr *net.UDPAddr) {
 	// We'll still forward the message to the channel for other processing
 	// but we won't rely on it for callbacks anymore
 	select {
+	case <-nm.done:
+		return
 	case nm.incomingMsgs <- msg:
 		// Message sent successfully
 	default:
@@ -556,7 +573,7 @@ func (nm *Manager) connectToServer() error {
 	}
 
 	// Start receiving messages
-	go nm.receiveMessages()
+	nm.startWorker(nm.receiveMessages)
 	return nil
 }
 
@@ -568,8 +585,10 @@ func (nm *Manager) connectToServer() error {
 
 // processMessages handles all incoming and outgoing messages
 func (nm *Manager) processMessages() {
-	for nm.isRunning {
+	for {
 		select {
+		case <-nm.done:
+			return
 		case msg := <-nm.incomingMsgs:
 			nm.handleIncomingMessage(msg)
 		case msg := <-nm.outgoingMsgs:
@@ -591,10 +610,14 @@ func (nm *Manager) handleIncomingMessage(msg networkMessage) {
 		}
 	case msgPing:
 		// Respond with pong
-		nm.outgoingMsgs <- networkMessage{
+		select {
+		case <-nm.done:
+			return
+		case nm.outgoingMsgs <- networkMessage{
 			Type:     msgPong,
 			PlayerID: nm.config.PlayerID,
 			Data:     msg.Data, // Echo the timestamp
+		}:
 		}
 	}
 }
@@ -866,10 +889,14 @@ func SendGameState(data []byte, targetPlayerID string) {
 		return
 	}
 
-	networkManager.outgoingMsgs <- networkMessage{
+	select {
+	case <-networkManager.done:
+		return
+	case networkManager.outgoingMsgs <- networkMessage{
 		Type:     msgGameState,
 		PlayerID: targetPlayerID, // "all" for broadcast
 		Data:     data,
+	}:
 	}
 }
 
@@ -882,10 +909,14 @@ func SendPlayerInput(data []byte) {
 		return
 	}
 
-	networkManager.outgoingMsgs <- networkMessage{
+	select {
+	case <-networkManager.done:
+		return
+	case networkManager.outgoingMsgs <- networkMessage{
 		Type:     msgPlayerInput,
 		PlayerID: networkManager.config.PlayerID,
 		Data:     data,
+	}:
 	}
 }
 

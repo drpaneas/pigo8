@@ -139,6 +139,11 @@ func TestHotPathPerformance(t *testing.T) {
 
 	// Test sprite lookup performance (critical hot path)
 	t.Run("SpriteLookupPerformance", func(t *testing.T) {
+		maxPerSprite := 100 * time.Nanosecond
+		if underRaceDetector() {
+			maxPerSprite = 2 * time.Microsecond
+		}
+
 		start := time.Now()
 
 		// Simulate 60fps with 1000 sprites per frame for 1 second
@@ -157,9 +162,9 @@ func TestHotPathPerformance(t *testing.T) {
 
 		t.Logf("Sprite lookup performance: %v total, %v per sprite", elapsed, avgPerSprite)
 
-		// Should be very fast - less than 100ns per sprite lookup
-		if avgPerSprite > 100*time.Nanosecond {
-			t.Errorf("Sprite lookup too slow: %v per sprite (should be < 100ns)", avgPerSprite)
+		// Race builds add heavy instrumentation, so use a looser threshold there.
+		if avgPerSprite > maxPerSprite {
+			t.Errorf("Sprite lookup too slow: %v per sprite (should be < %v)", avgPerSprite, maxPerSprite)
 		}
 	})
 

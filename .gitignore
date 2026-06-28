@@ -40,6 +40,7 @@ cmd/embedgen/embedgen
 cmd/editor/editor
 cmd/webexport/webexport
 cmd/spritesheet_analyzer/analyzer
+cmd/spritesheet_analyzer/spritesheet_analyzer
 examples/pong/pong
 examples/pong_multiplayer/pong_multiplayer
 cmd/editor/*.json

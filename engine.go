@@ -1,9 +1,9 @@
 package pigo8
 
 import (
+	"errors"
 	"fmt"
 	"log"
-	"os"
 	"runtime"
 	"sync"
 
@@ -161,6 +161,13 @@ func (g *game) Layout(_, _ int) (int, int) {
 // Restart is a flag that indicates if the game should be restarted
 var Restart bool
 
+// ErrQuitRequested is returned when the built-in pause menu requests a clean shutdown.
+var ErrQuitRequested = errors.New("pigo8: quit requested")
+
+var pauseConfirmPressed = func() bool {
+	return Btnp(X) || Btnp(ButtonJoyA) || Btnp(O)
+}
+
 // ResetGame fully resets the game state
 func (g *game) ResetGame() {
 	log.Println("Resetting game...")
@@ -229,7 +236,7 @@ func (g *game) Update() error {
 			}
 
 			// Process selection with X button (keyboard) or A button (gamepad)
-			if Btnp(X) || Btnp(ButtonJoyA) || Btnp(O) { // O is often the confirm button on some controllers
+			if pauseConfirmPressed() {
 				switch g.pauseSelected {
 				case EngPauseOptionContinue:
 					// Continue the game (unpause)
@@ -239,9 +246,8 @@ func (g *game) Update() error {
 					g.ResetGame()
 					// The next frame will trigger initialization
 				case EngPauseOptionExit:
-					// Exit the game immediately
-					fmt.Println("Exiting application...")
-					os.Exit(0) // This should immediately terminate the program
+					log.Println("Quit requested from pause menu")
+					return ErrQuitRequested
 				}
 			}
 		} else {
@@ -468,6 +474,10 @@ func PlayGameWith(settings *Settings) {
 	log.Println("Booting PIGO8 console...")
 	err := ebiten.RunGameWithOptions(internalGame, opts)
 	if err != nil {
+		if errors.Is(err, ErrQuitRequested) {
+			log.Println("PIGO8 console shutdown.")
+			return
+		}
 		log.Panicf("pico8.PlayGameWith: Ebitengine loop failed: %v", err)
 	}
 	log.Println("PIGO8 console shutdown.")

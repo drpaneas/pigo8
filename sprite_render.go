@@ -253,7 +253,8 @@ func Spr[SN Number, X Number, Y Number](spriteNumber SN, x X, y Y, options ...an
 	if currentSprites == nil {
 		loaded, err := loadSpritesheet() // Call the loading function from spritesheet.go
 		if err != nil {
-			log.Fatalf("Fatal: Failed to load required spritesheet for Spr(): %v", err)
+			log.Printf("Warning: Failed to load required spritesheet for Spr(): %v", err)
+			return
 		}
 		currentSprites = loaded // Store successfully loaded sprites
 	}

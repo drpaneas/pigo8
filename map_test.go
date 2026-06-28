@@ -2,6 +2,7 @@ package pigo8
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"testing"
 
@@ -192,4 +193,26 @@ func TestMgetWithMapFile(t *testing.T) {
 	// Mget should respect the dimensions of the loaded map data if map.json dictated smaller dimensions.
 	// However, our current initializeStreamingMapSystem prioritizes map.json dimensions for worldMapStream.
 	assert.Equal(t, 0, Mget(20, 20), "Mget(20, 20) should be 0 as it's outside the 16x16 map loaded from file")
+}
+
+func TestMgetReturnsZeroWhenStreamingInitializerFails(t *testing.T) {
+	streamingInitMutex.Lock()
+	streamingSystemInitialized = false
+	worldMapStream = nil
+	activeTileBufferInstance = nil
+	mapCacheIsValid = false
+	streamingInitErr = nil
+	streamingInitMutex.Unlock()
+
+	originalStreamingInitializer := streamingInitializer
+	streamingInitializer = func() error {
+		return errors.New("boom")
+	}
+	defer func() {
+		streamingInitializer = originalStreamingInitializer
+	}()
+
+	if got := Mget(0, 0); got != 0 {
+		t.Fatalf("expected zero tile when initialization fails, got %d", got)
+	}
 }
