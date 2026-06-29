@@ -79,7 +79,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages (Production)
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   # e.g. deploys to: https://drpaneas.github.io/pigo8/deploy-preview/42/
   preview:
@@ -92,4 +92,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages (PR Preview)
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
