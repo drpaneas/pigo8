@@ -29,9 +29,9 @@ const (
 	mediumGridSize  = 2 // 16x16 grid (4 sprites)
 	largeGridSize   = 4 // 32x32 grid (16 sprites)
 
-	// Map dimensions
-	mapWidth  = 320
-	mapHeight = 320
+	// Editor map dimensions
+	editorMapWidth  = 320
+	editorMapHeight = 320
 
 	// Default colors
 	defaultColor     = 1 // Default color
@@ -41,9 +41,6 @@ const (
 	paletteColumns = 8 // Number of columns in the palette display
 	numFlags       = 8 // Number of sprite flags
 
-	// Screen dimensions (default from PICO8)
-	defaultViewportWidth  = 128
-	defaultViewportHeight = 128
 )
 
 type myGame struct {
@@ -71,9 +68,10 @@ type myGame struct {
 	keyCooldown  int64 // Minimum time between undo/redo actions in milliseconds
 
 	// Map editor state
-	mapCameraX int                                              // Camera X position in the map (in sprites)
-	mapCameraY int                                              // Camera Y position in the map (in sprites)
-	mapData    [defaultViewportHeight][defaultViewportWidth]int // Represents the full 128x128 map area editable by the streaming system
+	mapViewport   mapViewport
+	mapLastMouseX int
+	mapLastMouseY int
+	mapData       [editorMapHeight][editorMapWidth]int
 }
 
 type mapData struct {
@@ -174,6 +172,8 @@ func (g *myGame) Init() {
 	g.hoverX = -1                 // No hover initially
 	g.hoverY = -1                 // No hover initially
 	g.gridSize = defaultGridSize  // Start with 8x8 grid (1 sprite)
+	g.mapViewport = defaultMapViewport()
+	g.mapViewport.clamp(len(g.mapData[0]), len(g.mapData), g.mapScreenLayout().Canvas)
 
 	// Ensure grid size is never less than 1
 	if g.gridSize < defaultGridSize {
@@ -367,97 +367,6 @@ func (g *myGame) Draw() {
 	g.drawEditorCanvas()
 	g.drawSpritesheetPanel()
 	g.drawSelectionAndPalette()
-}
-
-// drawMapMode draws everything when in map‐editing mode
-func (g *myGame) drawMapMode() {
-	const (
-		viewX = 10
-		viewY = 10
-		unit8 = 8
-	)
-	// 1) map viewport tiles
-	g.drawMapTiles(viewX, viewY)
-
-	// 2) hover highlight on map
-	mx, my := p8.GetMouseXY()
-	g.drawMapHover(viewX, viewY, mx, my)
-
-	// 3) border and UI text
-	p8.Rect(viewX, viewY,
-		viewX+mapViewWidth, viewY+mapViewHeight, g.getUIElementColor())
-	p8.Camera() // reset for text
-	g.printMapInfo(viewX, viewY, mx, my)
-}
-
-func (g *myGame) drawMapTiles(vx, vy int) {
-	cols := mapViewWidth / unit
-	rows := mapViewHeight / unit
-
-	for y := 0; y < rows; y++ {
-		for x := 0; x < cols; x++ {
-			tileX, tileY := g.mapCameraX+x, g.mapCameraY+y
-			if tileX >= 0 && tileX < mapWidth && tileY >= 0 && tileY < mapHeight {
-				spr := g.mapData[tileY][tileX] // Use g.mapData directly
-				p8.Spr(spr, float64(vx+x*8), float64(vy+y*8))
-			}
-		}
-	}
-}
-
-// drawMapHover draws the hover highlight on the map
-func (g *myGame) drawMapHover(vx, vy, mx, my int) {
-	cols := mapViewWidth / unit
-	rows := mapViewHeight / unit
-	// determine multi‐sprite grid
-	w, h := 1, 1
-	if g.gridSize >= 2 {
-		w, h = g.gridSize, g.gridSize
-	}
-	gx, gy := (mx-vx)/8, (my-vy)/8
-	if gx < 0 || gx >= cols || gy < 0 || gy >= rows {
-		return
-	}
-	for dy := 0; dy < h; dy++ {
-		for dx := 0; dx < w; dx++ {
-			x, y := gx+dx, gy+dy
-			if x < cols && y < rows {
-				p8.Rect(
-					float64(vx+x*8),
-					float64(vy+y*8),
-					float64(vx+(x+1)*8-1),
-					float64(vy+(y+1)*8-1),
-					g.getUIElementColor(), // Hover color
-				)
-			}
-		}
-	}
-}
-
-// printMapInfo prints the map info
-func (g *myGame) printMapInfo(vx, vy, mx, my int) {
-	// Screen coords
-	p8.Color(1)
-	sx := g.mapCameraX / (mapViewWidth / unit)
-	sy := g.mapCameraY / (mapViewHeight / unit)
-	textY := vy + mapViewHeight + 10
-	p8.Print(fmt.Sprintf("Screen: %d,%d", sx, sy), vx, textY, 1)
-
-	// Mouse in map space
-	if mx < vx || mx >= vx+mapViewWidth ||
-		my < vy || my >= vy+mapViewHeight {
-		return
-	}
-	mxMap := g.mapCameraX + (mx-vx)/8
-	myMap := g.mapCameraY + (my-vy)/8
-	p8.Print(fmt.Sprintf("Map: %d,%d", mxMap, myMap),
-		vx+90, textY, 1)
-
-	if mxMap >= 0 && mxMap < 128 && myMap >= 0 && myMap < 128 {
-		spr := p8.Mget(mxMap, myMap)
-		p8.Print(fmt.Sprintf("Sprite: %d", spr),
-			vx+180, textY, 1)
-	}
 }
 
 // drawEditorCanvas draws the non‐map “editor” canvas
@@ -875,8 +784,8 @@ func (g *myGame) convertMapToData() mapData {
 	mapData := mapData{
 		Version:     "1.0",
 		Description: "Map created with PIGO8 editor",
-		Width:       320,
-		Height:      320,
+		Width:       editorMapWidth,
+		Height:      editorMapHeight,
 		Name:        "map",
 		Cells:       []mapCell{},
 	}
@@ -911,7 +820,7 @@ func (g *myGame) applyMapData(mapData mapData) {
 	// Load the cells into our map data
 	for _, cell := range mapData.Cells {
 		// Make sure coordinates are within bounds
-		if cell.X >= 0 && cell.X < 320 && cell.Y >= 0 && cell.Y < 320 {
+		if cell.X >= 0 && cell.X < editorMapWidth && cell.Y >= 0 && cell.Y < editorMapHeight {
 			g.mapData[cell.Y][cell.X] = cell.Sprite
 			// Also update the PIGO8 map
 			p8.Mset(cell.X, cell.Y, cell.Sprite)
@@ -979,50 +888,6 @@ func (g *myGame) toggleMapMode() {
 	}
 }
 
-// -------------------- Map Mode --------------------
-func (g *myGame) handleMapMode() {
-	g.moveCamera()
-	g.placeOrEraseSprites()
-}
-
-func (g *myGame) moveCamera() {
-	stepX := mapViewWidth / unit
-	stepY := mapViewHeight / unit
-	if p8.Btnp(p8.LEFT) && g.mapCameraX > 0 {
-		g.mapCameraX -= stepX
-	}
-	if p8.Btnp(p8.RIGHT) && g.mapCameraX < mapWidth-stepX {
-		g.mapCameraX += stepX
-	}
-	if p8.Btnp(p8.UP) && g.mapCameraY > 0 {
-		g.mapCameraY -= stepY
-	}
-	if p8.Btnp(p8.DOWN) && g.mapCameraY < mapHeight-stepY {
-		g.mapCameraY += stepY
-	}
-}
-
-func (g *myGame) placeOrEraseSprites() {
-	mx, my := p8.GetMouseXY()
-	if !g.mouseInMap(mx, my) {
-		return
-	}
-	x := g.mapCameraX + (mx-10)/8
-	y := g.mapCameraY + (my-10)/8
-
-	if p8.Btn(p8.ButtonMouseRight) {
-		g.eraseAt(x, y)
-		return
-	}
-	if p8.Btn(p8.ButtonMouseLeft) {
-		g.placeGridSprites(x, y)
-	}
-}
-
-func (g *myGame) mouseInMap(mx, my int) bool {
-	return mx >= 10 && mx < 10+mapViewWidth && my >= 10 && my < 10+mapViewHeight
-}
-
 func (g *myGame) eraseAt(x, y int) {
 	if g.inBounds(x, y) {
 		// Only save if this cell is non-zero (actual change)
@@ -1038,6 +903,7 @@ func (g *myGame) eraseAt(x, y int) {
 }
 
 func (g *myGame) inBounds(x, y int) bool {
+	mapWidth, mapHeight := g.mapDataBounds()
 	return x >= 0 && x < mapWidth && y >= 0 && y < mapHeight
 }
 
@@ -1109,7 +975,7 @@ func (g *myGame) saveState() error {
 	state := struct {
 		Spritesheet   [24][32][8][8]int
 		SpriteFlags   [24][32][8]bool
-		MapData       [defaultViewportHeight][defaultViewportWidth]int // Use PICO-8 map dimensions
+		MapData       [editorMapHeight][editorMapWidth]int
 		CurrentSprite int
 		CurrentColor  int
 	}{
@@ -1150,36 +1016,24 @@ func (g *myGame) saveState() error {
 }
 
 // syncMapDataToPigo8 updates PICO-8's internal map memory to match g.mapData
-// using the bulk SetMap operation.
+// using the editor's full map dimensions.
 func (g *myGame) syncMapDataToPigo8() {
-	// g.mapData is now [p8.Pico8MapHeight][p8.Pico8MapWidth]int
-	// p8.SetMap expects a flat []byte slice.
-
-	mapBytes := make([]byte, defaultViewportHeight*defaultViewportWidth)
 	nonZeroTiles := 0
 
-	for y := 0; y < defaultViewportHeight; y++ {
-		for x := 0; x < defaultViewportWidth; x++ {
+	for y := 0; y < editorMapHeight; y++ {
+		for x := 0; x < editorMapWidth; x++ {
 			spriteID := g.mapData[y][x]
-			// Ensure spriteID is within byte range (0-255)
-			// PICO-8 sprite IDs are typically in this range.
 			if spriteID < 0 {
 				spriteID = 0
-			} else if spriteID > 255 {
-				// This case should ideally not happen if mapData stores valid PICO-8 sprite IDs.
-				log.Printf("Warning: Sprite ID %d at map[%d][%d] is out of byte range. Clamping to 255.", spriteID, y, x)
-				spriteID = 255
 			}
-			mapBytes[y*defaultViewportWidth+x] = byte(spriteID)
+			p8.Mset(x, y, spriteID)
 			if spriteID != 0 {
 				nonZeroTiles++
 			}
 		}
 	}
 
-	p8.SetMap(mapBytes)
-	log.Printf("Synced map to PIGO8 using SetMap. Non-zero tiles: %d", nonZeroTiles)
-	// g.debugPrintMap() // Commented out: ensure it handles new map dimensions if re-enabled
+	log.Printf("Synced full map to PIGO8 using Mset. Non-zero tiles: %d", nonZeroTiles)
 }
 
 // loadState loads a state from the virtual filesystem
@@ -1197,7 +1051,7 @@ func (g *myGame) loadState(filename string) error {
 	var state struct {
 		Spritesheet   [24][32][8][8]int
 		SpriteFlags   [24][32][8]bool
-		MapData       [defaultViewportHeight][defaultViewportWidth]int // Use PICO-8 map dimensions
+		MapData       [editorMapHeight][editorMapWidth]int
 		CurrentSprite int
 		CurrentColor  int
 	}
