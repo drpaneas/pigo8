@@ -4,8 +4,6 @@ const (
 	mapModePadding     = 10
 	mapModeGap         = 8
 	mapModeStripHeight = 44
-	mapMiniMapWidth    = 96
-	mapMiniMapHeight   = 32
 	mapPreviewSize     = 28
 )
 
@@ -14,7 +12,6 @@ type mapModeLayout struct {
 	Strip        mapRect
 	SelectedTile mapRect
 	Coordinates  mapRect
-	MiniMap      mapRect
 }
 
 func newMapModeLayout(screenWidth, screenHeight int) mapModeLayout {
@@ -40,18 +37,12 @@ func newMapModeLayout(screenWidth, screenHeight int) mapModeLayout {
 		H: mapPreviewSize,
 	}
 
+	coordinatesX := selectedTile.X + selectedTile.W + 12
 	coordinates := mapRect{
-		X: selectedTile.X + selectedTile.W + 12,
+		X: coordinatesX,
 		Y: strip.Y + (strip.H-20)/2,
-		W: 200,
+		W: strip.W - (coordinatesX - strip.X) - (mapModeGap * 2),
 		H: 20,
-	}
-
-	miniMap := mapRect{
-		X: strip.X + strip.W - mapModeGap - mapMiniMapWidth,
-		Y: strip.Y + (strip.H-mapMiniMapHeight)/2,
-		W: mapMiniMapWidth,
-		H: mapMiniMapHeight,
 	}
 
 	return mapModeLayout{
@@ -59,29 +50,5 @@ func newMapModeLayout(screenWidth, screenHeight int) mapModeLayout {
 		Strip:        strip,
 		SelectedTile: selectedTile,
 		Coordinates:  coordinates,
-		MiniMap:      miniMap,
-	}
-}
-
-func miniMapViewportRect(miniMap, canvas mapRect, vp mapViewport, mapWidth, mapHeight int) mapRect {
-	if mapWidth <= 0 || mapHeight <= 0 || canvas.W <= 0 || canvas.H <= 0 {
-		return mapRect{}
-	}
-
-	spanX, spanY := vp.visibleTileSpan(canvas)
-	scaledWidth := int(spanX * float64(miniMap.W) / float64(mapWidth))
-	scaledHeight := int(spanY * float64(miniMap.H) / float64(mapHeight))
-	if spanX > 0 && scaledWidth == 0 {
-		scaledWidth = 1
-	}
-	if spanY > 0 && scaledHeight == 0 {
-		scaledHeight = 1
-	}
-
-	return mapRect{
-		X: miniMap.X + int(vp.CameraX*float64(miniMap.W)/float64(mapWidth)),
-		Y: miniMap.Y + int(vp.CameraY*float64(miniMap.H)/float64(mapHeight)),
-		W: scaledWidth,
-		H: scaledHeight,
 	}
 }

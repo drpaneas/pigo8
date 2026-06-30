@@ -2,10 +2,21 @@ package main
 
 import (
 	"fmt"
+	"math"
 
 	p8 "github.com/drpaneas/pigo8"
 	"github.com/hajimehoshi/ebiten/v2"
 )
+
+const (
+	sceneBoundaryTiles = 16
+	sceneBoundaryColor = 8
+)
+
+type sceneBoundaryLine struct {
+	World  int
+	Screen int
+}
 
 func (g *myGame) mapScreenLayout() mapModeLayout {
 	return newMapModeLayout(width*unit, height*unit)
@@ -87,13 +98,7 @@ func (g *myGame) drawMapMode() {
 	)
 	g.drawMapTiles(layout)
 	g.drawMapHover(layout, tileX, tileY, ok)
-	p8.Rect(
-		layout.Canvas.X,
-		layout.Canvas.Y,
-		layout.Canvas.X+layout.Canvas.W-1,
-		layout.Canvas.Y+layout.Canvas.H-1,
-		g.getUIElementColor(),
-	)
+	g.drawSceneBoundaries(layout)
 	g.drawMapBottomStrip(layout, tileX, tileY, ok)
 }
 
@@ -135,6 +140,68 @@ func (g *myGame) drawMapHover(layout mapModeLayout, tileX, tileY int, ok bool) {
 				g.getUIElementColor(),
 			)
 		}
+	}
+}
+
+func visibleSceneBoundaryWorlds(camera, span float64, worldLimit int) []int {
+	if span <= 0 || worldLimit <= 0 {
+		return nil
+	}
+
+	visibleEnd := min(float64(worldLimit), camera+span)
+	firstWorld := int(math.Ceil(camera/sceneBoundaryTiles)) * sceneBoundaryTiles
+	lines := make([]int, 0, int(span/sceneBoundaryTiles)+1)
+	for world := firstWorld; float64(world) < visibleEnd; world += sceneBoundaryTiles {
+		lines = append(lines, world)
+	}
+
+	return lines
+}
+
+func visibleSceneBoundaryLines(vp mapViewport, canvas mapRect, mapWidth, mapHeight int) ([]sceneBoundaryLine, []sceneBoundaryLine) {
+	spanX, spanY := vp.visibleTileSpan(canvas)
+	verticalWorlds := visibleSceneBoundaryWorlds(vp.CameraX, spanX, mapWidth)
+	horizontalWorlds := visibleSceneBoundaryWorlds(vp.CameraY, spanY, mapHeight)
+
+	vertical := make([]sceneBoundaryLine, 0, len(verticalWorlds))
+	for _, world := range verticalWorlds {
+		screenX, _ := vp.worldToScreen(world, 0, canvas)
+		vertical = append(vertical, sceneBoundaryLine{
+			World:  world,
+			Screen: int(math.Round(screenX)),
+		})
+	}
+
+	horizontal := make([]sceneBoundaryLine, 0, len(horizontalWorlds))
+	for _, world := range horizontalWorlds {
+		_, screenY := vp.worldToScreen(0, world, canvas)
+		horizontal = append(horizontal, sceneBoundaryLine{
+			World:  world,
+			Screen: int(math.Round(screenY)),
+		})
+	}
+
+	return vertical, horizontal
+}
+
+func (g *myGame) drawSceneBoundaries(layout mapModeLayout) {
+	mapWidth, mapHeight := g.mapDataBounds()
+	vertical, horizontal := visibleSceneBoundaryLines(g.mapViewport, layout.Canvas, mapWidth, mapHeight)
+	canvasRight := layout.Canvas.X + layout.Canvas.W - 1
+	canvasBottom := layout.Canvas.Y + layout.Canvas.H - 1
+
+	for _, line := range vertical {
+		if line.Screen < layout.Canvas.X || line.Screen > canvasRight {
+			continue
+		}
+		p8.Line(line.Screen, layout.Canvas.Y, line.Screen, canvasBottom, sceneBoundaryColor)
+	}
+
+	for _, line := range horizontal {
+		if line.Screen < layout.Canvas.Y || line.Screen > canvasBottom {
+			continue
+		}
+		p8.Line(layout.Canvas.X, line.Screen, canvasRight, line.Screen, sceneBoundaryColor)
 	}
 }
 
@@ -182,42 +249,6 @@ func (g *myGame) drawMapBottomStrip(layout mapModeLayout, tileX, tileY int, ok b
 		fmt.Sprintf("selected: %d", g.currentSprite),
 		layout.Coordinates.X,
 		layout.Coordinates.Y+4,
-		uiColor,
-	)
-
-	mapWidth, mapHeight := g.mapDataBounds()
-	p8.Rectfill(
-		layout.MiniMap.X,
-		layout.MiniMap.Y,
-		layout.MiniMap.X+layout.MiniMap.W-1,
-		layout.MiniMap.Y+layout.MiniMap.H-1,
-		0,
-	)
-	for py := 0; py < layout.MiniMap.H; py++ {
-		sampleY := py * mapHeight / layout.MiniMap.H
-		for px := 0; px < layout.MiniMap.W; px++ {
-			sampleX := px * mapWidth / layout.MiniMap.W
-			if g.mapData[sampleY][sampleX] != 0 {
-				p8.Pset(layout.MiniMap.X+px, layout.MiniMap.Y+py, uiColor)
-			}
-		}
-	}
-
-	viewportRect := miniMapViewportRect(layout.MiniMap, layout.Canvas, g.mapViewport, mapWidth, mapHeight)
-	if viewportRect.W > 0 && viewportRect.H > 0 {
-		p8.Rect(
-			viewportRect.X,
-			viewportRect.Y,
-			viewportRect.X+viewportRect.W-1,
-			viewportRect.Y+viewportRect.H-1,
-			8,
-		)
-	}
-	p8.Rect(
-		layout.MiniMap.X,
-		layout.MiniMap.Y,
-		layout.MiniMap.X+layout.MiniMap.W-1,
-		layout.MiniMap.Y+layout.MiniMap.H-1,
 		uiColor,
 	)
 }

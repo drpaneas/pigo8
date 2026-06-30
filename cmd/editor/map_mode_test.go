@@ -6,6 +6,22 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestVisibleSceneBoundaryWorldsReturnsVisibleSceneIntervals(t *testing.T) {
+	assert.Equal(t, []int{16, 32}, visibleSceneBoundaryWorlds(12.5, 20, 320))
+	assert.Equal(t, []int{16, 32}, visibleSceneBoundaryWorlds(12.5, 20.5, 320))
+	assert.Equal(t, []int{304}, visibleSceneBoundaryWorlds(300.25, 19.75, 320))
+}
+
+func TestVisibleSceneBoundaryLinesStayWorldAnchoredWhenZoomed(t *testing.T) {
+	canvas := mapRect{X: 10, Y: 20, W: 160, H: 120}
+	vp := mapViewport{CameraX: 14.25, CameraY: 30.5, Zoom: 4}
+
+	vertical, horizontal := visibleSceneBoundaryLines(vp, canvas, 320, 320)
+
+	assert.Equal(t, []sceneBoundaryLine{{World: 16, Screen: 66}}, vertical)
+	assert.Equal(t, []sceneBoundaryLine{{World: 32, Screen: 68}}, horizontal)
+}
+
 func TestMapTargetTileUsesViewport(t *testing.T) {
 	g := &myGame{
 		mapViewport: mapViewport{CameraX: 12.5, CameraY: 7.25, Zoom: 1.5},
