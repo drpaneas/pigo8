@@ -25,26 +25,21 @@ func TestPerformanceOptimizations(t *testing.T) {
 	t.Run("FrameLevelMetrics", func(t *testing.T) {
 		EnableFrameStats(true)
 
-		frame := BeginSpriteFrame()
-		if frame == nil {
-			t.Fatal("Frame should not be nil when stats are enabled")
-		}
+		before := GetSpriteMetrics().SpritesRendered
 
-		// Simulate sprite operations
+		// Simulate sprite operations within a single frame (batched locally)
 		for i := 0; i < 100; i++ {
 			recordSpriteRendered()
 		}
 
-		if frame.SpritesRendered != 100 {
-			t.Errorf("Frame should record 100 sprites, got %d", frame.SpritesRendered)
-		}
-
-		EndSpriteFrame(frame)
+		// Flush local frame counters into the global metrics collector,
+		// mirroring what engine.go's Draw() does once per frame.
+		FlushFrameMetrics()
 
 		// Verify metrics were recorded
 		metrics := GetSpriteMetrics()
-		if metrics.SpritesRendered < 100 {
-			t.Errorf("Global metrics should include frame data, got %d", metrics.SpritesRendered)
+		if metrics.SpritesRendered-before != 100 {
+			t.Errorf("Global metrics should include frame data, got delta %d", metrics.SpritesRendered-before)
 		}
 	})
 
@@ -176,14 +171,13 @@ func TestHotPathPerformance(t *testing.T) {
 
 		// Simulate 60 frames
 		for frame := 0; frame < 60; frame++ {
-			frameStats := BeginSpriteFrame()
-
 			// Simulate 1000 sprites per frame
 			for sprite := 0; sprite < 1000; sprite++ {
 				recordSpriteRendered()
 			}
 
-			EndSpriteFrame(frameStats)
+			// Flush local frame counters, mirroring engine.go's Draw()
+			FlushFrameMetrics()
 		}
 
 		elapsed := time.Since(start)

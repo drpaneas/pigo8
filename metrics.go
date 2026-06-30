@@ -7,10 +7,102 @@ import (
 	"time"
 )
 
-// ===== Optimization 8: Batched Per-Frame Metrics =====
-// See frame_metrics.go for the per-frame local counters.
-// The record* functions there use atomic ops only when frameStatsActive is true,
-// avoiding overhead when frame stats are disabled.
+// ===== Optimization 8: Per-Frame Local Counters =====
+// recordSpriteRendered/recordCacheHit/etc. increment plain (non-atomic) local
+// counters during Draw(), which is single-threaded. FlushFrameMetrics() then
+// batches them into metricsCollector's atomic counters once per frame,
+// avoiding an atomic op per sprite in the hot path.
+
+// localFrameCounters holds per-frame counters (not atomic - single threaded in Draw)
+type localFrameCounters struct {
+	spritesRendered  int64
+	cacheHits        int64
+	cacheMisses      int64
+	validationErrors int64
+	spritesSkipped   int64
+	spritesLoaded    int64
+}
+
+// localCounters is the thread-local metrics for the current frame
+var localCounters localFrameCounters
+
+// Global frame tracking
+var (
+	frameCounter     int64
+	frameStatsActive = false
+)
+
+func recordSpriteRendered() {
+	localCounters.spritesRendered++
+}
+
+func recordCacheHit() {
+	localCounters.cacheHits++
+}
+
+func recordCacheMiss() {
+	localCounters.cacheMisses++
+}
+
+func recordValidationError() {
+	localCounters.validationErrors++
+}
+
+func recordSpriteSkipped() {
+	localCounters.spritesSkipped++
+}
+
+func recordSpriteLoaded() {
+	localCounters.spritesLoaded++
+}
+
+// EnableFrameStats enables frame-level statistics collection
+func EnableFrameStats(enabled bool) {
+	frameStatsActive = enabled
+}
+
+// IsFrameStatsEnabled returns whether frame stats are enabled
+func IsFrameStatsEnabled() bool {
+	return frameStatsActive
+}
+
+// GetCurrentFrameNumber returns the current frame number
+func GetCurrentFrameNumber() int64 {
+	return atomic.LoadInt64(&frameCounter)
+}
+
+// IncrementFrameCounter increments the frame counter and returns the new value.
+// This should be called once per frame in Update(), regardless of whether
+// frame stats are enabled, to ensure the LRU cache has valid frame ticks.
+func IncrementFrameCounter() int64 {
+	return atomic.AddInt64(&frameCounter, 1)
+}
+
+// FlushFrameMetrics flushes local frame metrics to global counters.
+// Call this once per frame; engine.go's Draw() calls it every frame.
+func FlushFrameMetrics() {
+	if localCounters.spritesRendered > 0 {
+		atomic.AddInt64(&metricsCollector.spritesRendered, localCounters.spritesRendered)
+	}
+	if localCounters.cacheHits > 0 {
+		atomic.AddInt64(&metricsCollector.cacheHits, localCounters.cacheHits)
+	}
+	if localCounters.cacheMisses > 0 {
+		atomic.AddInt64(&metricsCollector.cacheMisses, localCounters.cacheMisses)
+	}
+	if localCounters.validationErrors > 0 {
+		atomic.AddInt64(&metricsCollector.validationErrors, localCounters.validationErrors)
+	}
+	if localCounters.spritesSkipped > 0 {
+		atomic.AddInt64(&metricsCollector.spritesSkipped, localCounters.spritesSkipped)
+	}
+	if localCounters.spritesLoaded > 0 {
+		atomic.AddInt64(&metricsCollector.spritesLoaded, localCounters.spritesLoaded)
+	}
+
+	// Reset local counters
+	localCounters = localFrameCounters{}
+}
 
 // SpriteMetrics holds comprehensive sprite system performance metrics
 type SpriteMetrics struct {
@@ -128,27 +220,6 @@ func (m *MetricsCollector) RecordRenderTime(duration time.Duration) {
 	defer m.mutex.Unlock()
 	m.totalRenderTime += duration
 	atomic.AddInt64(&m.renderCount, 1)
-}
-
-// RecordFrameMetrics records frame-level metrics (batch operation)
-func (m *MetricsCollector) RecordFrameMetrics(frame *FrameStats, frameTime time.Duration) {
-	if frame == nil {
-		return
-	}
-
-	// Batch update all counters
-	atomic.AddInt64(&m.spritesRendered, frame.SpritesRendered)
-	atomic.AddInt64(&m.spritesLoaded, frame.SpritesLoaded)
-	atomic.AddInt64(&m.spritesSkipped, frame.SpritesSkipped)
-	atomic.AddInt64(&m.validationErrors, frame.ValidationErrors)
-	atomic.AddInt64(&m.cacheHits, frame.CacheHits)
-	atomic.AddInt64(&m.cacheMisses, frame.CacheMisses)
-
-	// Record frame timing
-	m.mutex.Lock()
-	m.totalRenderTime += frameTime
-	atomic.AddInt64(&m.renderCount, 1)
-	m.mutex.Unlock()
 }
 
 // RecordLoadTime adds to the total load time

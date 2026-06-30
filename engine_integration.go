@@ -14,25 +14,6 @@ func InitializeSpriteSystem() {
 	EnableFrameStats(debugEnabled())
 }
 
-// BeginFrame should be called at the start of each render frame
-// This enables frame-level performance tracking without per-sprite overhead
-func BeginFrame() *FrameStats {
-	// Lock configuration to prevent mid-frame changes
-	LockConfiguration()
-
-	// Start frame-level metrics collection
-	return BeginSpriteFrame()
-}
-
-// EndFrame should be called at the end of each render frame
-func EndFrame(frame *FrameStats) {
-	// Complete frame-level metrics
-	EndSpriteFrame(frame)
-
-	// Unlock configuration for next frame
-	UnlockConfiguration()
-}
-
 // OptimizeSpritesForGame pre-warms caches and optimizes sprite data for game performance
 func OptimizeSpritesForGame() error {
 	// Ensure sprites are loaded

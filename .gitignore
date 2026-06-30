@@ -49,11 +49,11 @@ cmd/editor/*.json
 dist/
 */dist/
 
-# Ignore WASM files except in docs/ (which contains the web demos for GitHub Pages)
+# Ignore generated webexport output everywhere, including under docs/
+# (the docs/ web demos are now built into the mdBook output by CI, not committed)
 **/game.wasm
 **/wasm_exec.js
-!docs/**/game.wasm
-!docs/**/wasm_exec.js
+docs/**/index.html
 
 # Profiling files
 *.prof

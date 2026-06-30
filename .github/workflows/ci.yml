@@ -20,11 +20,6 @@ jobs:
       with:
         go-version-file: 'go.mod'
 
-    - name: Clear Go module cache if needed
-      run: |
-        go clean -modcache || true
-        go clean -cache || true
-
     - name: Cache Go modules
       uses: actions/cache@v6.1.0
       continue-on-error: true
@@ -53,7 +48,7 @@ jobs:
       run: go build -v ./...
     
     - name: Test the code
-      run: DISPLAY=:99 go test -v ./...
+      run: DISPLAY=:99 go test -race -v ./...
 
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v9

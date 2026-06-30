@@ -12,11 +12,15 @@ on:
       - 'book.toml'
       - '.github/workflows/mdbook.yml'
       - 'docs/**'
+      - 'examples/**'
+      - 'cmd/webexport/**'
   pull_request:
     paths:
       - 'book.toml'
       - '.github/workflows/mdbook.yml'
       - 'docs/**'
+      - 'examples/**'
+      - 'cmd/webexport/**'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -41,6 +45,10 @@ jobs:
       MDBOOK_VERSION: 0.4.36
     steps:
       - uses: actions/checkout@v6
+      - name: Set up Go environment
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
       - name: Install mdBook
         run: |
           curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf -y | sh
@@ -51,17 +59,22 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Build with mdBook
         run: mdbook build
-      - name: Copy web game exports to book output
+      - name: Build web game exports
         run: |
-          # Copy web-exported games to the book output directory
-          # These are pre-built WASM games that can be played in the browser
-          for dir in docs/pong docs/animation docs/gameboy docs/hello_world docs/map docs/spritesheet docs/bigSprite docs/flashlight docs/map_layers; do
-            if [ -d "$dir" ] && [ -f "$dir/game.wasm" ]; then
-              dirname=$(basename "$dir")
-              mkdir -p "book/$dirname"
-              cp -r "$dir"/* "book/$dirname/"
-              echo "Copied $dir to book/$dirname"
+          # Build WASM exports for the demos referenced in docs/SUMMARY.md
+          # directly into the book output via the cmd/webexport tool.
+          # Each example is its own Go module (go.mod/go.sum are gitignored,
+          # not committed), so initialize one pointing at this checkout
+          # before invoking webexport, which just runs `go build` in-place.
+          for example in pong animation gameboy hello_world map spritesheet bigSprite flashlight map_layers; do
+            dir="./examples/$example"
+            if [ ! -f "$dir/go.mod" ]; then
+              (cd "$dir" && \
+                go mod init "github.com/drpaneas/pigo8/examples/$example" && \
+                echo "replace github.com/drpaneas/pigo8 => ../.." >> go.mod && \
+                go mod tidy)
             fi
+            go run ./cmd/webexport -game "$dir" -o "./book/$example"
           done
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4

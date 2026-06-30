@@ -316,7 +316,6 @@ func BenchmarkSpriteRenderingHotPath(b *testing.B) {
 	b.Run("SpriteRenderLoop_WithMetrics", func(b *testing.B) {
 		// Enable frame stats
 		EnableFrameStats(true)
-		frame := BeginSpriteFrame()
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -330,7 +329,8 @@ func BenchmarkSpriteRenderingHotPath(b *testing.B) {
 			}
 		}
 
-		EndSpriteFrame(frame)
+		// Flush local frame counters, mirroring engine.go's Draw()
+		FlushFrameMetrics()
 	})
 }
 
