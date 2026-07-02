@@ -18,6 +18,37 @@ import (
 
 var linkPattern = regexp.MustCompile(`\]\(([^)]+)\)`)
 
+var inlineCodePattern = regexp.MustCompile("`[^`\n]*`")
+
+// stripCodeFences removes the contents of fenced code blocks (delimited by
+// lines that are exactly "```" or start with "```<language>") from content.
+// This prevents code samples such as Go generic signatures (which contain a
+// literal "](") from being misidentified as markdown links.
+func stripCodeFences(content string) string {
+	lines := strings.Split(content, "\n")
+	var out []string
+	inFence := false
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+// stripInlineCode removes single backtick-delimited inline code spans (for
+// example, inline code showing markdown link syntax like [text](target)
+// as documentation) from content. This prevents such spans from being
+// misidentified as an actual link.
+func stripInlineCode(content string) string {
+	return inlineCodePattern.ReplaceAllString(content, "")
+}
+
 // extractLinks returns every link target found inside markdown link/image
 // syntax `[text](target)` or `![alt](target)`, in the order they appear.
 func extractLinks(content string) []string {
@@ -31,6 +62,9 @@ func extractLinks(content string) []string {
 
 // isCheckable reports whether a link target should be verified against the
 // filesystem (relative paths only; external URLs and in-page anchors are skipped).
+// Note: other URI schemes without "://" (e.g. "tel:") and percent-encoded
+// paths (e.g. "%20") are not specially handled; this is not a concern for
+// the current docs set.
 func isCheckable(target string) bool {
 	if target == "" {
 		return false
@@ -58,11 +92,16 @@ func checkFile(path string) ([]string, error) {
 
 	dir := filepath.Dir(path)
 	var broken []string
-	for _, link := range extractLinks(string(data)) {
+	for _, link := range extractLinks(stripInlineCode(stripCodeFences(string(data)))) {
 		if !isCheckable(link) {
 			continue
 		}
 		target := link
+		// Markdown link titles (e.g. `target.md "My Title"`) are separated
+		// from the path by whitespace; only the first field is the path.
+		if fields := strings.Fields(target); len(fields) > 0 {
+			target = fields[0]
+		}
 		if idx := strings.Index(target, "#"); idx >= 0 {
 			target = target[:idx]
 		}
@@ -82,6 +121,9 @@ func main() {
 	flag.Parse()
 
 	var totalBroken int
+	// Note: any single unreadable file or directory aborts the whole walk;
+	// this is acceptable for the current docs set where such errors would
+	// indicate a real problem worth stopping for.
 	err := filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
