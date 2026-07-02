@@ -5,8 +5,8 @@ import (
 	"os"
 )
 
-// HTMLTemplateData contains the data for rendering the HTML template
-type HTMLTemplateData struct {
+// htmlTemplateData contains the data for rendering the HTML template
+type htmlTemplateData struct {
 	Title string
 }
 
@@ -28,7 +28,7 @@ func GenerateHTML(outputPath, title string) (err error) {
 		}
 	}()
 
-	data := HTMLTemplateData{
+	data := htmlTemplateData{
 		Title: title,
 	}
 

@@ -12,6 +12,11 @@ import (
 	"strings"
 )
 
+// pigo8ModulePath is the module path of this repository, used as the target
+// of the replace directive written into example go.mod files by
+// EnsureExampleModule.
+const pigo8ModulePath = "github.com/drpaneas/pigo8"
+
 // BuildWASM compiles the Go program in gameDir to a WebAssembly binary at outputPath.
 func BuildWASM(gameDir, outputPath string) error {
 	cmd := exec.Command("go", "build", "-ldflags=-s -w", "-o", outputPath, ".")
@@ -100,14 +105,24 @@ func copyFile(src, dst string) (err error) {
 // EnsureExampleModule makes sure gameDir has its own go.mod pointing at the
 // local pigo8 checkout via a replace directive, matching how CI builds each
 // example (examples' go.mod/go.sum are gitignored, not committed).
+//
+// gameDir and repoRoot must both be absolute paths, since filepath.Rel
+// requires consistently based paths to compute a correct relative path.
+//
+// Completion is signaled by the presence of gameDir/go.sum rather than
+// go.mod: go.mod is created by the first step (go mod init), so treating it
+// as "already set up" would let a partial failure (e.g. go mod tidy failing
+// after go.mod exists but before go.sum is written) look like success on any
+// retry. go.sum is only ever produced by a successful go mod tidy, so its
+// presence means every earlier step also completed successfully.
 func EnsureExampleModule(gameDir, repoRoot, modulePath string) error {
-	if _, err := os.Stat(filepath.Join(gameDir, "go.mod")); err == nil {
-		return nil // already has one
+	if _, err := os.Stat(filepath.Join(gameDir, "go.sum")); err == nil {
+		return nil // already fully set up
 	}
 
 	relPath, err := filepath.Rel(gameDir, repoRoot)
 	if err != nil {
-		return fmt.Errorf("computing relative path to repo root: %w", err)
+		return fmt.Errorf("computing relative path from %s to %s: %w", gameDir, repoRoot, err)
 	}
 
 	initCmd := exec.Command("go", "mod", "init", modulePath)
@@ -115,25 +130,28 @@ func EnsureExampleModule(gameDir, repoRoot, modulePath string) error {
 	initCmd.Stdout = os.Stdout
 	initCmd.Stderr = os.Stderr
 	if err := initCmd.Run(); err != nil {
-		return fmt.Errorf("go mod init: %w", err)
+		return fmt.Errorf("go mod init in %s: %w", gameDir, err)
 	}
 
 	goModPath := filepath.Join(gameDir, "go.mod")
 	f, err := os.OpenFile(goModPath, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		return err
+		return fmt.Errorf("opening %s to append replace directive: %w", goModPath, err)
 	}
-	if _, err := fmt.Fprintf(f, "\nreplace github.com/drpaneas/pigo8 => %s\n", filepath.ToSlash(relPath)); err != nil {
+	if _, err := fmt.Fprintf(f, "\nreplace %s => %s\n", pigo8ModulePath, filepath.ToSlash(relPath)); err != nil {
 		_ = f.Close()
-		return err
+		return fmt.Errorf("writing replace directive to %s: %w", goModPath, err)
 	}
 	if err := f.Close(); err != nil {
-		return err
+		return fmt.Errorf("closing %s: %w", goModPath, err)
 	}
 
 	tidyCmd := exec.Command("go", "mod", "tidy")
 	tidyCmd.Dir = gameDir
 	tidyCmd.Stdout = os.Stdout
 	tidyCmd.Stderr = os.Stderr
-	return tidyCmd.Run()
+	if err := tidyCmd.Run(); err != nil {
+		return fmt.Errorf("go mod tidy in %s: %w", gameDir, err)
+	}
+	return nil
 }
