@@ -9,11 +9,12 @@ sprites, and maps). With no arguments, resets the camera to `(0, 0)`. Mimics PIC
 **Parameters:**
 | Name | Type | Description |
 |------|------|--------------|
-| `x`, `y` | `any` (optional) | Horizontal/vertical camera offset. |
+| `x`, `y` | `any` (optional) | Horizontal/vertical camera offset. Calling with only `x` sets the horizontal offset and resets `y` to 0 (matches PICO-8 behavior). |
 
 **Example:**
 ```go
 p8.Camera(64, 32) // set camera to (64, 32)
+p8.Camera(64)     // set x to 64, y resets to 0
 p8.Camera()       // reset to (0, 0)
 
 // Lock UI in place while the world scrolls:

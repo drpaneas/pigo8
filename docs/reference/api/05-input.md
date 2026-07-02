@@ -9,7 +9,8 @@ or gamepad axes. Mimics PICO-8's `btn()`.
 | Name | Type | Description |
 |------|------|--------------|
 | `buttonIndex` | `int` | PICO-8 button index (0-15) - see the button constants (`LEFT`, `RIGHT`, `UP`, `DOWN`, `O`, `X`, `ButtonStart`, `ButtonSelect`, and mouse/gamepad-specific constants). |
-| `playerIndex` | `int` (optional) | Player index (0-7). Defaults to 0. |
+
+**Note:** `Btn`/`Btnp` accept an optional variadic second argument for forward compatibility with a future per-player index, but it is not currently used - both functions always read player 0's input regardless of any extra arguments passed.
 
 **Example:**
 ```go
@@ -25,13 +26,12 @@ Reports whether a button was **just pressed** this frame (transitioned from up t
 auto-repeat). Mimics PICO-8's `btnp()`. Keyboard input only applies to player 0; mouse input
 applies to all player indices.
 
+**Note:** `Btn`/`Btnp` accept an optional variadic second argument for forward compatibility with a future per-player index, but it is not currently used - both functions always read player 0's input regardless of any extra arguments passed.
+
 **Example:**
 ```go
 if p8.Btnp(p8.X) {
 	// jump
-}
-if p8.Btnp(p8.ButtonStart, 1) {
-	// pause for player 1
 }
 ```
 

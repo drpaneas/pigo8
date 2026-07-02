@@ -5,6 +5,12 @@
 Reports whether the pixel at `(x, y)` matches `color`. Returns `false` if the coordinates are
 out of screen bounds (0-127) or the color index is invalid.
 
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `x`, `y` | `Number` | Screen pixel coordinates to check. |
+| `color` | `int` | PICO-8 color index (0-15) to compare against. |
+
 **Example:**
 ```go
 if p8.ColorCollision(player.x, player.y, 3) {

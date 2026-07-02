@@ -50,6 +50,11 @@ p8.Sspr(8, 8, 16, 16, 10, 20, 16, 16, true, false) // flipped horizontally
 Returns the PICO-8 color index (0-15) of the pixel at `(x, y)` on the spritesheet. Returns 0 if
 out of bounds.
 
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `x`, `y` | `Number` | Pixel coordinates on the spritesheet. |
+
 **Example:**
 ```go
 pixelColor := p8.Sget(10, 20)
@@ -59,6 +64,12 @@ pixelColor := p8.Sget(10, 20)
 
 Sets the color of a pixel at `(x, y)` on the spritesheet. Uses the current draw color if
 `colorIndex` is omitted.
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `x`, `y` | `Number` | Pixel coordinates on the spritesheet. |
+| `colorIndex` | `int` (optional, variadic) | PICO-8 color index (0-15). Defaults to the current draw color. |
 
 **Example:**
 ```go

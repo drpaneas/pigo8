@@ -26,8 +26,10 @@ transparent).
 **Parameters:**
 | Name | Type | Description |
 |------|------|--------------|
-| `color` | `int` | PICO-8 palette color index (0-15). |
+| `color` | `int` | PICO-8 color index (0-15). |
 | `transparent` | `bool` | `true` to make the color transparent, `false` to make it opaque. |
+
+**Note:** the real signature is variadic (`args ...interface{}`); `color` and `transparent` are extracted positionally from `args` rather than being named parameters (the same pattern used by `Cursor`/`Print`).
 
 **Example:**
 ```go
@@ -60,10 +62,17 @@ p8.Sset(10, 20) // draws a red pixel on the spritesheet at (10, 20)
 
 Returns the `color.Color` at the given palette index, or `nil` if out of range.
 
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `colorIndex` | `int` | PICO-8 color index (0-15) to look up. |
+
 **Example:**
 ```go
 c := p8.GetPaletteColor(3)
 ```
+
+**See also:** [Colors and Palette](../../10-graphics/02-colors.md)
 
 ## `GetPaletteSize() int`
 
@@ -75,10 +84,17 @@ size := p8.GetPaletteSize()
 p8.Print(fmt.Sprintf("Palette has %d colors", size), 10, 10, 7)
 ```
 
+**See also:** [Colors and Palette](../../10-graphics/02-colors.md)
+
 ## `SetPalette(newPalette []color.Color)`
 
 Replaces the entire color palette. Resizes the transparency array to match, resetting only index
 0 as transparent by default.
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `newPalette` | `[]color.Color` | The full replacement palette. |
 
 **Example:**
 ```go
@@ -96,6 +112,12 @@ p8.SetPalette(grayscale)
 ## `SetPaletteColor(colorIndex int, newColor color.Color)`
 
 Replaces a single palette color at the given index. No-op if the index is out of range.
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `colorIndex` | `int` | PICO-8 color index (0-15) to replace. |
+| `newColor` | `color.Color` | The new color to place at that index. |
 
 **Example:**
 ```go

@@ -41,7 +41,7 @@ Creates a `Settings` object populated with defaults.
 | `Multiplayer` | `bool` | false | Enable multiplayer networking. |
 | `Fullscreen` | `bool` | false | Start in fullscreen. |
 | `ColorSpace` | `ebiten.ColorSpace` | default | Rendering color space. |
-| `DisableHiDPI` | `bool` | false | Disable HiDPI scaling. |
+| `DisableHiDPI` | `bool` | true | Disable HiDPI scaling. |
 | `SpriteImageCacheSize` | `int` | 256 | Max cached transparent sprite images. |
 | `SpritePixelCacheSize` | `int` | 256 | Max cached sprite pixel data entries. |
 | `SsprCacheSize` | `int` | 128 | Max cached `Sspr` source regions. |

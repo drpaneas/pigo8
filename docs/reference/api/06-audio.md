@@ -5,6 +5,12 @@
 Plays the audio file with ID `n`. If `n` is -1, stops all currently playing audio. If
 `exclusive` is `true`, stops all other audio first.
 
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `n` | `int` | Audio ID to play, or -1 to stop all currently playing audio. |
+| `exclusive` | `bool` (optional, variadic) | If true, stops all other audio before playing. Defaults to false. |
+
 **Example:**
 ```go
 p8.Music(0)        // play audio 0 (mixes with anything already playing)
@@ -15,9 +21,20 @@ p8.Music(0, true)  // play audio 0, stopping everything else first
 
 Plays audio `n` in a loop. Equivalent to `MusicWithOptions(n, MusicOptions{Loop: true})`.
 
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `n` | `int` | Audio ID to play in a loop. |
+| `exclusive` | `bool` (optional, variadic) | If true, stops all other audio before playing. Defaults to false. |
+
 ## `StopMusic(id int)`
 
 Stops the audio file with the given ID. If `id` is -1, stops all audio.
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `id` | `int` | Audio ID to stop, or -1 to stop all audio. |
 
 ## `MusicWithOptions(n int, opts MusicOptions)` / `MusicOptions`
 

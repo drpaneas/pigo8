@@ -25,6 +25,11 @@ p8.Map(0, 0, 0, 0, 32, 32, 1)     // only draw tiles whose sprite has flag 0 set
 
 Returns the sprite number placed at the given map column/row.
 
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `column`, `row` | `Number` | Map tile coordinates to read from. |
+
 **Example:**
 ```go
 sprite := p8.Mget(5, 3)
@@ -33,6 +38,12 @@ sprite := p8.Mget(5, 3)
 ## `Mset[C, R, S Number](column C, row R, sprite S)`
 
 Sets the sprite number at the given map column/row.
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `column`, `row` | `Number` | Map tile coordinates to write to. |
+| `sprite` | `Number` | Sprite number to place at that tile. |
 
 **Example:**
 ```go

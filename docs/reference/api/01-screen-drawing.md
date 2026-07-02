@@ -20,7 +20,7 @@ p8.Cls(12)   // clear to blue
 
 ## `ClsRGBA(clr color.RGBA)`
 
-Clears the current drawing screen with a specified RGBA color instead of a PICO-8 palette index,
+Clears the current drawing screen with a specified RGBA color instead of a PICO-8 color index,
 allowing any RGBA color to be used.
 
 **Parameters:**

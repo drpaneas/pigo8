@@ -4,6 +4,11 @@
 
 Rounds down to the nearest whole integer. Mimics PICO-8's `flr()`.
 
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `a` | `Number` | The number to round down. |
+
 **Example:**
 ```go
 p8.Flr(1.99)  // 1
@@ -16,6 +21,11 @@ Returns a random integer in `[0, floor(a))`. Returns 0 if `a` is zero or negativ
 PICO-8's `flr(rnd(a))`. Uses Go's `math/rand`; unlike PICO-8, results are not deterministic
 across runs unless you explicitly seed the global source.
 
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `a` | `Number` | The exclusive upper bound for the random result. |
+
 **Example:**
 ```go
 p8.Rnd(5)    // 0, 1, 2, 3, or 4
@@ -26,6 +36,11 @@ p8.Rnd(5.9)  // 0-4 (floor(5.9) = 5)
 
 Returns the square root. Returns 0 for negative input (unlike `math.Sqrt`, which returns `NaN`),
 matching PICO-8 behavior.
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|--------------|
+| `a` | `Number` | The number to take the square root of. |
 
 **Example:**
 ```go
