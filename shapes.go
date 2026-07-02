@@ -277,6 +277,10 @@ func Line[X1 Number, Y1 Number, X2 Number, Y2 Number](x1 X1, y1 Y1, x2 X2, y2 Y2
 	// Convert to float64 for calculations
 	fx1, fy1, fx2, fy2 := float64(x1), float64(y1), float64(x2), float64(y2)
 
+	// Apply camera offset (matches Rect/Circ and their filled variants)
+	fx1, fy1 = applyCameraOffset(fx1, fy1)
+	fx2, fy2 = applyCameraOffset(fx2, fy2)
+
 	// Round to nearest integer for pixel-perfect rendering
 	fx1 = math.Round(fx1)
 	fy1 = math.Round(fy1)
