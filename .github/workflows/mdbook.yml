@@ -14,6 +14,8 @@ on:
       - 'docs/**'
       - 'examples/**'
       - 'cmd/webexport/**'
+      - 'cmd/editor/**'
+      - 'internal/webbuild/**'
   pull_request:
     paths:
       - 'book.toml'
@@ -21,6 +23,8 @@ on:
       - 'docs/**'
       - 'examples/**'
       - 'cmd/webexport/**'
+      - 'cmd/editor/**'
+      - 'internal/webbuild/**'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -76,6 +80,12 @@ jobs:
             fi
             go run ./cmd/webexport -game "$dir" -o "./book/$example"
           done
+      - name: Build editor web export
+        run: |
+          # cmd/editor is part of the repo's root module (not a standalone
+          # example under examples/*), so it's built directly, unlike the
+          # loop above which sets up a throwaway go.mod per example first.
+          go run ./cmd/webexport -game ./cmd/editor -o ./book/editor -title "PIGO8 Editor"
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:

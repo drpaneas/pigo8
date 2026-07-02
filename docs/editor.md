@@ -2,6 +2,11 @@
 
 The PIGO8 editor is an _extremely minimal_ tool that allows you to create and edit sprites and maps for your PIGO8 games. This documentation covers how to install, run, and use the editor effectively.
 
+**[Try the editor live in your browser](https://drpaneas.github.io/pigo8/editor/)** - no installation
+required. The browser version can't write to disk, so your sprites and map only exist for the
+current session (reloading the page resets everything); use it to explore the interface, and
+install it locally (below) for real project work.
+
 ## Installation
 
 To install the PIGO8 editor, you need to have Go installed on your system. If you haven't installed Go yet, please refer to the [Installation](01-installation.md) guide.
