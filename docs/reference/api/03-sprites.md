@@ -6,6 +6,7 @@ Draws sprite `spriteNumber` (and optionally a fractional block of surrounding sp
 `(x, y)`.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `spriteNumber` | `Number` | Index of the top-left sprite to draw. |
@@ -28,6 +29,7 @@ Draws an arbitrary rectangular region of the spritesheet, with optional stretchi
 Mimics PICO-8's `sspr(sx, sy, sw, sh, dx, dy, [dw, dh], [flip_x], [flip_y])`.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `sx`, `sy` | `Number` | Source position on the spritesheet, in pixels. |
@@ -51,6 +53,7 @@ Returns the PICO-8 color index (0-15) of the pixel at `(x, y)` on the spriteshee
 out of bounds.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `x`, `y` | `Number` | Pixel coordinates on the spritesheet. |
@@ -66,6 +69,7 @@ Sets the color of a pixel at `(x, y)` on the spritesheet. Uses the current draw 
 `colorIndex` is omitted.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `x`, `y` | `Number` | Pixel coordinates on the spritesheet. |

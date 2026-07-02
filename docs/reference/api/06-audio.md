@@ -6,6 +6,7 @@ Plays the audio file with ID `n`. If `n` is -1, stops all currently playing audi
 `exclusive` is `true`, stops all other audio first.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `n` | `int` | Audio ID to play, or -1 to stop all currently playing audio. |
@@ -22,6 +23,7 @@ p8.Music(0, true)  // play audio 0, stopping everything else first
 Plays audio `n` in a loop. Equivalent to `MusicWithOptions(n, MusicOptions{Loop: true})`.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `n` | `int` | Audio ID to play in a loop. |
@@ -32,6 +34,7 @@ Plays audio `n` in a loop. Equivalent to `MusicWithOptions(n, MusicOptions{Loop:
 Stops the audio file with the given ID. If `id` is -1, stops all audio.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `id` | `int` | Audio ID to stop, or -1 to stop all audio. |
@@ -41,6 +44,7 @@ Stops the audio file with the given ID. If `id` is -1, stops all audio.
 Plays audio `n` using explicit options instead of variadic booleans.
 
 **`MusicOptions` fields:**
+
 | Field | Type | Description |
 |-------|------|--------------|
 | `Exclusive` | `bool` | If true, stops all other audio before playing. |

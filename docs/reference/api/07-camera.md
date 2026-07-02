@@ -7,6 +7,7 @@ sprites, and maps). With no arguments, resets the camera to `(0, 0)`. Mimics PIC
 `camera(x, y)`.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `x`, `y` | `any` (optional) | Horizontal/vertical camera offset. Calling with only `x` sets the horizontal offset and resets `y` to 0 (matches PICO-8 behavior). |

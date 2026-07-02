@@ -6,6 +6,7 @@ Reports whether the pixel at `(x, y)` matches `color`. Returns `false` if the co
 out of screen bounds (0-127) or the color index is invalid.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `x`, `y` | `Number` | Screen pixel coordinates to check. |
@@ -26,6 +27,7 @@ Reports whether a rectangular area starting at `(x, y)` overlaps any map tile wh
 `flag` set. Internally resolves overlapping tiles via `Mget`/`Fget`.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `x`, `y` | `Number` | Top-left pixel coordinates of the area to check. |

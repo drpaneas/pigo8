@@ -6,6 +6,7 @@ Clears the current drawing screen with a specified PICO-8 color index. If no `co
 provided, it defaults to 0 (black).
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `colorIndex` | `int` (optional, variadic) | PICO-8 color index (0-15). Defaults to 0 (black). |
@@ -24,6 +25,7 @@ Clears the current drawing screen with a specified RGBA color instead of a PICO-
 allowing any RGBA color to be used.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `clr` | `color.RGBA` | The RGBA color to clear the screen with. |
@@ -44,6 +46,7 @@ shapes, it is not affected by the camera offset. Out-of-bounds coordinates or in
 indices are silently ignored (with a logged warning for invalid colors).
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `x`, `y` | `int` | Screen pixel coordinates. |
@@ -64,6 +67,7 @@ Returns the PICO-8 color index (0-15) of the pixel at `(x, y)`. Returns 0 (black
 coordinates are out of bounds or the pixel doesn't exactly match a palette color.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `x`, `y` | `int` | Screen pixel coordinates to sample. |
@@ -81,6 +85,7 @@ idx := p8.Pget(10, 20) // idx == 8
 Draws a line between two points. Mimics PICO-8's `line(x1, y1, x2, y2, color)`.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `x1`, `y1` | `Number` | Starting point coordinates. |
@@ -99,6 +104,7 @@ p8.Line(0, 0, 127, 127, 8) // diagonal red line across the screen
 Draws an outline rectangle using two opposing corner points. Mimics PICO-8's `rect(x1, y1, x2, y2, color)`.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `x1`, `y1`, `x2`, `y2` | `Number` | Coordinates of two opposing corners. |
@@ -129,6 +135,7 @@ p8.Rectfill(10, 10, 40, 30, 11) // filled green rectangle
 Draws an outline circle. Mimics PICO-8's `circ(x, y, radius, color)`.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `x`, `y` | `Number` | Center point coordinates. |
@@ -162,6 +169,7 @@ mimicking PICO-8's `print(str, [x, y], color)`, including cursor tracking. Retur
 coordinates immediately after the printed string.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `s` | `any` | Value to print (formatted with `%v`). |
@@ -186,6 +194,7 @@ PICO-8's `cursor(x, y, color)`. Calling with no arguments resets the position to
 changing the color.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `args` | `int` (optional, variadic) | `[]`: reset to (0,0). `[x, y]`: set position. `[x, y, color]`: set position and draw color. |

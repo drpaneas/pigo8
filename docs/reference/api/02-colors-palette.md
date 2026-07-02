@@ -6,6 +6,7 @@ Configures draw palette mappings, mimicking PICO-8's `pal(c0, c1, p)`. When colo
 requested for drawing, `c1` is used instead.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `args` | variadic | `[]`: reset all mappings. `[c0, c1]`: map c0 -> c1 for the draw palette. `[c0, c1, p]`: `p=0` maps the draw palette; `p=1` (screen palette post-processing) is not implemented and logs a warning. |
@@ -24,6 +25,7 @@ Sets color transparency for drawing. With no arguments, resets to default (only 
 transparent).
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `color` | `int` | PICO-8 color index (0-15). |
@@ -46,6 +48,7 @@ p8.Palt()          // reset to default transparency
 Sets the current draw color used by subsequent drawing operations.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `colorIndex` | `int` | PICO-8 color index (0-15). |
@@ -63,6 +66,7 @@ p8.Sset(10, 20) // draws a red pixel on the spritesheet at (10, 20)
 Returns the `color.Color` at the given palette index, or `nil` if out of range.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `colorIndex` | `int` | PICO-8 color index (0-15) to look up. |
@@ -92,6 +96,7 @@ Replaces the entire color palette. Resizes the transparency array to match, rese
 0 as transparent by default.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `newPalette` | `[]color.Color` | The full replacement palette. |
@@ -114,6 +119,7 @@ p8.SetPalette(grayscale)
 Replaces a single palette color at the given index. No-op if the index is out of range.
 
 **Parameters:**
+
 | Name | Type | Description |
 |------|------|--------------|
 | `colorIndex` | `int` | PICO-8 color index (0-15) to replace. |
