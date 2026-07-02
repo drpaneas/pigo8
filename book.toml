@@ -8,3 +8,7 @@ description = "Technical reference for the PIGO8 library to help you make PICO-8
 
 [build]
 build-dir = "book" # <- default and expected by GH Actions. No need to create thid folder, Github will do.
+
+[output.html]
+git-repository-url = "https://github.com/drpaneas/pigo8"
+edit-url-template = "https://github.com/drpaneas/pigo8/edit/main/{path}"
