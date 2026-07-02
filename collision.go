@@ -118,20 +118,20 @@ func ClearFlagCache() {
 //
 // Example:
 //
-//	// Check if the 8x8 area at (player.x, player.y) collides with a tile having Flag0
-//	if MapCollision(player.x, player.y, Flag0) {
+//	// Check if the 8x8 area at (player.x, player.y) collides with a tile having flag 0 set
+//	if MapCollision(player.x, player.y, 0) {
 //	    // Collision detected
 //	}
 //
-//	// Check if a 14x15 pixel player area collides with a tile having Flag0
+//	// Check if a 14x15 pixel player area collides with a tile having flag 0 set
 //	playerWidth := 14
 //	playerHeight := 15
-//	if MapCollision(player.x, player.y, Flag0, playerWidth, playerHeight) {
+//	if MapCollision(player.x, player.y, 0, playerWidth, playerHeight) {
 //	    // Collision with the rectangular player area detected
 //	}
 //
-//	// Check if a 16x16 pixel area collides with a tile having Flag1
-//	if MapCollision(enemy.x, enemy.y, Flag1, 16) { // Assumes square enemy
+//	// Check if a 16x16 pixel area collides with a tile having flag 1 set
+//	if MapCollision(enemy.x, enemy.y, 1, 16) { // Assumes square enemy
 //	    // Collision detected
 //	}
 func MapCollision[X Number, Y Number](x X, y Y, flag int, size ...int) bool {
