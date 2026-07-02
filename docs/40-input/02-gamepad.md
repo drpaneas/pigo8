@@ -76,16 +76,17 @@ func (g *game) Draw() {
 multiplayer with multiple gamepads on the same machine:
 
 ```go
-if p8.Btn(p8.LEFT, 0) { player1.x-- }  // player 1's gamepad
-if p8.Btn(p8.LEFT, 1) { player2.x-- }  // player 2's gamepad
+if p8.Btn(p8.LEFT, 0) { player0.x-- }  // player index 0's input
+if p8.Btn(p8.LEFT, 1) { player1.x-- }  // player index 1's gamepad
 ```
 
 Gamepads are assigned to players by ascending gamepad ID among the currently connected
 gamepads - plugging in two controllers gives you players 0 and 1, in whatever order the OS
-reports them (not necessarily physical plug-in order). Player 0 also reads keyboard input, so
-a keyboard-only player and a single gamepad player can coexist as player 0 and player 1
-respectively. Mouse input is shared across all player indices, since there's only one mouse.
-An out-of-range player index (negative, or greater than 7) returns `false` rather than erroring.
+reports them (not necessarily physical plug-in order). With only one gamepad connected, it's
+assigned to player 0 alongside the keyboard (both work simultaneously for player 0) - there's
+no player 1 gamepad until a second one is connected. Mouse input is shared across all player
+indices, since there's only one mouse. An out-of-range player index (negative, or greater than
+7) returns `false` rather than erroring.
 
 ```go
 func (g *game) Update() {
