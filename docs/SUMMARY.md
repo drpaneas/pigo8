@@ -79,3 +79,4 @@
   - [Math](reference/api/09-math.md)
   - [Settings & Lifecycle](reference/api/10-settings-lifecycle.md)
 - [PICO-8 Comparison](reference/pico8-comparison.md)
+- [FAQ & Troubleshooting](reference/faq.md)
