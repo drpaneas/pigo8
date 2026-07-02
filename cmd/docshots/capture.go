@@ -1,12 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"image"
 	_ "image/png"
-	"strings"
 	"time"
 
 	"github.com/chromedp/cdproto/input"
@@ -40,6 +39,11 @@ var arrowKeyCodes = map[string]struct {
 
 // pressKeys dispatches keydown events for the given keys. Returns an error
 // for any key name not present in arrowKeyCodes.
+//
+// The dispatch itself must run inside a chromedp.Run/ActionFunc call: the
+// generated CDP params' Do(ctx) method requires a context carrying the
+// executor that chromedp's action-running machinery injects, which a bare
+// context (e.g. the one from chromedp.NewContext) does not have on its own.
 func pressKeys(ctx context.Context, keys []string) error {
 	var downs []input.DispatchKeyEventParams
 	for _, k := range keys {
@@ -53,60 +57,90 @@ func pressKeys(ctx context.Context, keys []string) error {
 			WithWindowsVirtualKeyCode(code.WindowsVirtual).
 			WithNativeVirtualKeyCode(code.NativeVirtual))
 	}
-	for i := range downs {
-		if err := downs[i].Do(ctx); err != nil {
-			return err
+	return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		for i := range downs {
+			if err := downs[i].Do(ctx); err != nil {
+				return err
+			}
 		}
-	}
-	return nil
+		return nil
+	}))
 }
 
 // releaseKeys dispatches keyup events for the given keys. Returns an error
-// for any key name not present in arrowKeyCodes.
+// for any key name not present in arrowKeyCodes. See pressKeys for why the
+// dispatch runs inside a chromedp.Run/ActionFunc call.
 func releaseKeys(ctx context.Context, keys []string) error {
+	var ups []input.DispatchKeyEventParams
 	for _, k := range keys {
 		code, ok := arrowKeyCodes[k]
 		if !ok {
 			return fmt.Errorf("unsupported key %q in manifest input step", k)
 		}
-		up := input.DispatchKeyEvent(input.KeyUp).
+		ups = append(ups, *input.DispatchKeyEvent(input.KeyUp).
 			WithCode(code.Code).
 			WithKey(code.Key).
 			WithWindowsVirtualKeyCode(code.WindowsVirtual).
-			WithNativeVirtualKeyCode(code.NativeVirtual)
-		if err := up.Do(ctx); err != nil {
-			return err
-		}
+			WithNativeVirtualKeyCode(code.NativeVirtual))
 	}
-	return nil
+	return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		for i := range ups {
+			if err := ups[i].Do(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
 }
 
-// captureCanvasPNG evaluates JS in the page to grab the current <canvas>
-// contents as a base64-encoded PNG data URL, then decodes it into an image.Image.
-func captureCanvasPNG(ctx context.Context) (image.Image, error) {
-	var dataURL string
+// hideControlsOverlay hides the web-export template's virtual controller UI
+// (header bar, D-pad, action buttons) so captured screenshots/GIFs show only
+// the game itself. It's a no-op if the elements aren't present.
+func hideControlsOverlay(ctx context.Context) error {
+	script := `(() => {
+		const selectors = ['.header-bar', '.controls-overlay'];
+		for (const s of selectors) {
+			const el = document.querySelector(s);
+			if (el) { el.style.display = 'none'; }
+		}
+	})()`
+	return chromedp.Run(ctx, chromedp.Evaluate(script, nil))
+}
+
+// focusCanvas gives keyboard focus to the game's <canvas> element. Ebiten
+// attaches its keydown/keyup listeners directly to the canvas (not to
+// document/window) and only focuses it itself in response to a real
+// click/touch, so without this, synthetic CDP key events never reach the
+// game's input handling even though dispatching them succeeds without
+// error. Ebiten makes the canvas focusable via tabindex, so a plain
+// .focus() call is enough.
+func focusCanvas(ctx context.Context) error {
 	script := `(() => {
 		const c = document.querySelector('canvas');
-		if (!c) return '';
-		return c.toDataURL('image/png');
+		if (c) { c.focus(); }
 	})()`
-	if err := chromedp.Run(ctx, chromedp.Evaluate(script, &dataURL)); err != nil {
-		return nil, fmt.Errorf("evaluating canvas capture script: %w", err)
-	}
-	if dataURL == "" {
-		return nil, fmt.Errorf("no canvas element found on page")
+	return chromedp.Run(ctx, chromedp.Evaluate(script, nil))
+}
+
+// captureCanvasPNG captures the current browser viewport (which the web
+// export template sizes to exactly match the game canvas) as a PNG and
+// decodes it into an image.Image.
+//
+// This deliberately does NOT use canvas.toDataURL(): Ebiten renders via
+// WebGL, and WebGL canvases don't preserve their drawing buffer after the
+// browser compositor consumes each frame unless the context requests
+// preserveDrawingBuffer, so toDataURL() called from outside the render loop
+// returns a blank/transparent image. A full CDP viewport screenshot captures
+// the actual composited pixels instead, avoiding that problem entirely.
+func captureCanvasPNG(ctx context.Context) (image.Image, error) {
+	var buf []byte
+	if err := chromedp.Run(ctx, chromedp.CaptureScreenshot(&buf)); err != nil {
+		return nil, fmt.Errorf("capturing viewport screenshot: %w", err)
 	}
 
-	const prefix = "data:image/png;base64,"
-	encoded := strings.TrimPrefix(dataURL, prefix)
-	raw, err := base64.StdEncoding.DecodeString(encoded)
+	img, _, err := image.Decode(bytes.NewReader(buf))
 	if err != nil {
-		return nil, fmt.Errorf("decoding canvas base64 data: %w", err)
-	}
-
-	img, _, err := image.Decode(strings.NewReader(string(raw)))
-	if err != nil {
-		return nil, fmt.Errorf("decoding canvas PNG data: %w", err)
+		return nil, fmt.Errorf("decoding screenshot PNG data: %w", err)
 	}
 	return img, nil
 }
@@ -126,6 +160,13 @@ func captureJob(ctx context.Context, job CaptureJob, pageURL string) ([]image.Im
 		chromedp.Sleep(500*time.Millisecond), // let the WASM game finish Init()
 	); err != nil {
 		return nil, fmt.Errorf("loading page %s: %w", pageURL, err)
+	}
+
+	if err := hideControlsOverlay(tabCtx); err != nil {
+		return nil, fmt.Errorf("hiding controls overlay: %w", err)
+	}
+	if err := focusCanvas(tabCtx); err != nil {
+		return nil, fmt.Errorf("focusing canvas: %w", err)
 	}
 
 	var frames []image.Image
