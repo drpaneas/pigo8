@@ -50,7 +50,7 @@ You can switch between the sprite editor and map editor by pressing the `X` key 
 
 ## Sprite Editor
 
-![Sprite Editor](sprite_editor.png)
+![Sprite Editor](img/generated/editor-sprite.png)
 
 The sprite editor allows you to create and modify individual sprites pixel by pixel. Each sprite is 8x8 pixels in size, matching the PICO-8 standard.
 
@@ -100,7 +100,7 @@ Copy the current sprite's pixel data and paste it onto another sprite:
 
 ## Map Editor
 
-![Map Editor](map_editor.png)
+![Map Editor](img/generated/editor-map.png)
 
 The map editor allows you to arrange sprites into a game map. The full map is 320x320 tiles,
 much larger than what's visible on screen at once - use panning and zooming (below) to navigate
@@ -120,6 +120,10 @@ preview of the sprite currently selected for placement.
 - **Arrow keys** or **W/A/S/D**: pan the camera around the map.
 - **Middle mouse button (drag)**: pan the camera by dragging.
 - **Mouse wheel**: zoom in/out (roughly 0.5x-4x).
+
+![Panning the map with WASD](img/generated/editor-pan.gif)
+
+![Zooming in and out with the mouse wheel](img/generated/editor-zoom.gif)
 
 ### Scene Boundaries
 
