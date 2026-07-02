@@ -67,4 +67,15 @@
 # Reference
 
 - [Cheatsheet](reference/cheatsheet.md)
+- [API Reference](reference/api/00-overview.md)
+  - [Screen & Drawing](reference/api/01-screen-drawing.md)
+  - [Colors & Palette](reference/api/02-colors-palette.md)
+  - [Sprites](reference/api/03-sprites.md)
+  - [Maps](reference/api/04-maps.md)
+  - [Input](reference/api/05-input.md)
+  - [Audio](reference/api/06-audio.md)
+  - [Camera](reference/api/07-camera.md)
+  - [Collision](reference/api/08-collision.md)
+  - [Math](reference/api/09-math.md)
+  - [Settings & Lifecycle](reference/api/10-settings-lifecycle.md)
 - [PICO-8 Comparison](reference/pico8-comparison.md)

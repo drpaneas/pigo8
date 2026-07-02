@@ -1,5 +1,7 @@
 # PIGO8 Cheatsheet
 
+For full explanations, parameter tables, and examples, see the [API Reference](api/00-overview.md).
+
 ## Quick Reference
 
 ### Initialization
