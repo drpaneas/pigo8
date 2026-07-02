@@ -41,6 +41,8 @@ func (g *game) Draw() {
 }
 ```
 
+![Custom palette example](../img/generated/palette.png)
+
 ## Palt - Transparency Control
 
 `Palt` controls which colors are treated as transparent when drawing sprites.

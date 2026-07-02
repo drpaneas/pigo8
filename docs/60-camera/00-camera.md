@@ -11,6 +11,8 @@ p8.Camera()      // Reset to (0, 0)
 
 When the camera is at (x, y), everything draws shifted by (-x, -y).
 
+![Camera offset example](../img/generated/camera.png)
+
 ## Following a Player
 
 ```go

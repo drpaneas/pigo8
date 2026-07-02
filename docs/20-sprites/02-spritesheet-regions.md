@@ -59,6 +59,8 @@ func (g *game) Draw() {
 }
 ```
 
+![Spritesheet region example](../img/generated/spritesheet.png)
+
 ## Sget / Sset - Spritesheet Pixels
 
 Read and write individual pixels on the spritesheet.

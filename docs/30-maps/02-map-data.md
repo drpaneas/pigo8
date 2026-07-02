@@ -30,6 +30,8 @@ if spriteID == 0 {
 }
 ```
 
+![Map with multiple layers](../img/generated/map-layers.png)
+
 ## Mset - Write Map Tile
 
 ```go

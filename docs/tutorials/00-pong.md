@@ -6,6 +6,8 @@ Let's build a complete Pong game step by step.
 
 Two paddles, a ball, scoring, and AI opponent.
 
+![Pong gameplay](../img/generated/pong.gif)
+
 ## Step 1: Project Setup
 
 ```bash

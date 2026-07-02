@@ -20,6 +20,8 @@ Returns `true` if any tile under the area has the specified flag set.
 | width | int | 8 | Area width (pixels) |
 | height | int | 8 | Area height (pixels) |
 
+![Map collision example](../img/generated/map-collision.gif)
+
 ## Basic Usage
 
 ```go

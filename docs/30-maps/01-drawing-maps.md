@@ -36,6 +36,8 @@ p8.Map(0, 0, 10, 20)
 p8.Map(0, 0, 0, 0, 16, 16)
 ```
 
+![Map rendering example](../img/generated/map.png)
+
 ### Scrolling
 
 For a scrolling game, offset the map position:

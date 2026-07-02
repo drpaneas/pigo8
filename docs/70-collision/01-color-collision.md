@@ -34,6 +34,8 @@ func (g *game) Update() {
 }
 ```
 
+![Color collision example](../img/generated/color-collision.gif)
+
 ## How It Works
 
 1. All objects are drawn to the screen

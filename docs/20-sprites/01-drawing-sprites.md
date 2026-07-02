@@ -84,6 +84,8 @@ func (g *game) Draw() {
 }
 ```
 
+![Sprite animation running in PIGO8](../img/generated/animation.gif)
+
 ## Transparency
 
 By default, black pixels (color 0) are transparent. To change this:

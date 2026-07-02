@@ -33,6 +33,8 @@ Run it:
 go run .
 ```
 
+![Hello World running in PIGO8](img/generated/hello-world.png)
+
 ## What's Happening?
 
 ### The Game Struct
