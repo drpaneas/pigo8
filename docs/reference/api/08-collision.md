@@ -28,12 +28,12 @@ Reports whether a rectangular area starting at `(x, y)` overlaps any map tile wh
 
 **Example:**
 ```go
-if p8.MapCollision(player.x, player.y, p8.Flag0) {
-	// collision with default 8x8 area
+if p8.MapCollision(player.x, player.y, 0) {
+	// collision with default 8x8 area, checking flag 0
 }
 playerWidth, playerHeight := 14, 15
-if p8.MapCollision(player.x, player.y, p8.Flag0, playerWidth, playerHeight) {
-	// collision with a custom-sized area
+if p8.MapCollision(player.x, player.y, 0, playerWidth, playerHeight) {
+	// collision with a custom-sized area, checking flag 0
 }
 ```
 
