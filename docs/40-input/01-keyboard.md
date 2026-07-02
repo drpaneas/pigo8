@@ -26,7 +26,9 @@ if p8.Btn(p8.LEFT) {
 
 Returns `true` every frame the button is held down.
 
-> **Note:** The optional player index parameter (e.g., `Btn(p8.LEFT, 1)`) is currently not used. All input is treated as player 0.
+> **Note:** `Btn`/`Btnp` accept an optional player index (e.g., `Btn(p8.LEFT, 1)`) for local
+> multiplayer. Keyboard input always maps to player 0; players 1-7 read their own assigned
+> gamepad instead. See [Gamepad](02-gamepad.md#local-multiplayer) for details.
 
 ### Continuous Movement
 

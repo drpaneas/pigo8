@@ -70,3 +70,29 @@ func (g *game) Draw() {
 }
 ```
 
+## Local Multiplayer
+
+`Btn`/`Btnp` accept an optional player index (0-7) as their second argument for local
+multiplayer with multiple gamepads on the same machine:
+
+```go
+if p8.Btn(p8.LEFT, 0) { player1.x-- }  // player 1's gamepad
+if p8.Btn(p8.LEFT, 1) { player2.x-- }  // player 2's gamepad
+```
+
+Gamepads are assigned to players by ascending gamepad ID among the currently connected
+gamepads - plugging in two controllers gives you players 0 and 1, in whatever order the OS
+reports them (not necessarily physical plug-in order). Player 0 also reads keyboard input, so
+a keyboard-only player and a single gamepad player can coexist as player 0 and player 1
+respectively. Mouse input is shared across all player indices, since there's only one mouse.
+An out-of-range player index (negative, or greater than 7) returns `false` rather than erroring.
+
+```go
+func (g *game) Update() {
+    for player := range g.players {
+        if p8.Btn(p8.LEFT, player)  { g.players[player].x-- }
+        if p8.Btn(p8.RIGHT, player) { g.players[player].x++ }
+    }
+}
+```
+

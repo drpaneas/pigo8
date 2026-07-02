@@ -2,6 +2,7 @@
 package pigo8
 
 import (
+	"slices"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -170,9 +171,18 @@ var pico8ButtonToKeyboardP0 = map[int]ebiten.Key{
 	// You can add more mappings as needed
 }
 
+// maxLocalPlayers is the number of local player slots Btn/Btnp accept via
+// their optional playerIndex argument (PICO-8 supports up to 8 players).
+const maxLocalPlayers = 8
+
 // connectedGamepadIDs stores the currently connected gamepad IDs.
 // Use a map for efficient add/remove operations.
 var connectedGamepadIDs = make(map[ebiten.GamepadID]struct{})
+
+// connectedGamepadIDsSorted is connectedGamepadIDs sorted in ascending
+// order, giving a stable "player N -> gamepad" mapping for the lifetime of
+// each gamepad's connection. Rebuilt whenever the connected set changes.
+var connectedGamepadIDsSorted []ebiten.GamepadID
 
 // gamepadIDsBuf is a temporary buffer reused by UpdateConnectedGamepads.
 var gamepadIDsBuf []ebiten.GamepadID
@@ -180,18 +190,48 @@ var gamepadIDsBuf []ebiten.GamepadID
 // updateConnectedGamepads refreshes the list of connected gamepad IDs.
 // Call this function once per frame in your game's Update method.
 func updateConnectedGamepads() {
+	changed := false
+
 	// Check for newly connected gamepads
 	gamepadIDsBuf = inpututil.AppendJustConnectedGamepadIDs(gamepadIDsBuf[:0])
 	for _, id := range gamepadIDsBuf {
-		connectedGamepadIDs[id] = struct{}{}
+		if _, exists := connectedGamepadIDs[id]; !exists {
+			connectedGamepadIDs[id] = struct{}{}
+			changed = true
+		}
 	}
 
 	// Check for disconnected gamepads
 	for id := range connectedGamepadIDs {
 		if inpututil.IsGamepadJustDisconnected(id) {
 			delete(connectedGamepadIDs, id)
+			changed = true
 		}
 	}
+
+	if changed {
+		rebuildSortedGamepadIDs()
+	}
+}
+
+// rebuildSortedGamepadIDs recomputes connectedGamepadIDsSorted from
+// connectedGamepadIDs.
+func rebuildSortedGamepadIDs() {
+	connectedGamepadIDsSorted = connectedGamepadIDsSorted[:0]
+	for id := range connectedGamepadIDs {
+		connectedGamepadIDsSorted = append(connectedGamepadIDsSorted, id)
+	}
+	slices.Sort(connectedGamepadIDsSorted)
+}
+
+// gamepadForPlayer returns the gamepad ID assigned to the given local
+// player slot (0-indexed, ordered by ascending gamepad ID) and whether one
+// is currently connected for that slot.
+func gamepadForPlayer(playerIndex int) (ebiten.GamepadID, bool) {
+	if playerIndex < 0 || playerIndex >= len(connectedGamepadIDsSorted) {
+		return 0, false
+	}
+	return connectedGamepadIDsSorted[playerIndex], true
 }
 
 // isMouseButton checks if the given buttonIndex corresponds to a mouse button or wheel.
@@ -322,8 +362,25 @@ func handleGamepadStandardButtonInput(buttonIndex int, gamepadID ebiten.GamepadI
 //
 // buttonIndex: The PICO-8 button index (0-15).
 // playerIndex: Optional PICO-8 player index (0-7). Defaults to 0 (player 1) if omitted.
-func Btn(buttonIndex int, _ ...int) bool {
-	return getCachedButtonState(buttonIndex)
+// Player 0 reads keyboard, mouse, and its assigned gamepad (if any); players
+// 1-7 read only their own assigned gamepad, assigned by ascending gamepad ID
+// among currently connected gamepads. Mouse input is shared across all
+// player indices. An out-of-range playerIndex (< 0 or > 7) returns false.
+func Btn(buttonIndex int, args ...int) bool {
+	playerIndex := parsePlayerIndex(args)
+	if playerIndex < 0 || playerIndex >= maxLocalPlayers {
+		return false
+	}
+	return getCachedButtonState(buttonIndex, playerIndex)
+}
+
+// parsePlayerIndex extracts the optional playerIndex argument used by Btn
+// and Btnp, defaulting to 0 (player 1) when omitted.
+func parsePlayerIndex(args []int) int {
+	if len(args) == 0 {
+		return 0
+	}
+	return args[0]
 }
 
 // Note: For "just pressed" behavior similar to PICO-8's btnp(), you would use
@@ -360,17 +417,28 @@ func Btn(buttonIndex int, _ ...int) bool {
 //	if Btnp(START, 1) {
 //		// Pause game for player 1
 //	}
-func Btnp(buttonIndex int, _ ...int) bool {
+func Btnp(buttonIndex int, args ...int) bool {
+	playerIndex := parsePlayerIndex(args)
+	if playerIndex < 0 || playerIndex >= maxLocalPlayers {
+		return false
+	}
 	// Check if button is pressed this frame but wasn't pressed last frame
-	current := getCachedButtonState(buttonIndex)
-	previous := getCachedButtonStatePrev(buttonIndex)
+	current := getCachedButtonState(buttonIndex, playerIndex)
+	previous := getCachedButtonStatePrev(buttonIndex, playerIndex)
 	return current && !previous
+}
+
+// buttonKey identifies a single button's state for a single local player
+// slot in the input cache.
+type buttonKey struct {
+	player int
+	button int
 }
 
 // Add input state caching
 var (
-	buttonStates     = make(map[int]bool) // buttonIndex -> isPressed
-	buttonStatesPrev = make(map[int]bool) // previous frame button states
+	buttonStates     = make(map[buttonKey]bool) // (player, buttonIndex) -> isPressed
+	buttonStatesPrev = make(map[buttonKey]bool) // previous frame button states
 	inputCacheMutex  sync.RWMutex
 	inputCacheValid  bool
 )
@@ -385,63 +453,71 @@ func updateInputCache() {
 		buttonStatesPrev[k] = v
 	}
 
-	// Update current states for all buttons
-	for buttonIndex := 0; buttonIndex <= ButtonJoypadR5; buttonIndex++ {
-		buttonStates[buttonIndex] = checkButtonState(buttonIndex)
+	// Update current states for all buttons, for every local player slot.
+	for player := 0; player < maxLocalPlayers; player++ {
+		for buttonIndex := 0; buttonIndex <= ButtonJoypadR5; buttonIndex++ {
+			buttonStates[buttonKey{player, buttonIndex}] = checkButtonState(buttonIndex, player)
+		}
 	}
 
 	inputCacheValid = true
 }
 
-// checkButtonState checks the actual button state (uncached)
-func checkButtonState(buttonIndex int) bool {
-	// Check virtual buttons first (for web platform touch/click input)
-	if getVirtualButtonState(buttonIndex) {
-		return true
-	}
-
-	// Handle mouse buttons
+// checkButtonState checks the actual button state (uncached) for the given
+// local player slot.
+//
+// Player 0 checks virtual (touch) buttons, mouse, keyboard, and its
+// assigned gamepad. Players 1 and up check only their assigned gamepad
+// (mouse is shared across all player indices, matching PICO-8's single
+// physical mouse).
+func checkButtonState(buttonIndex, playerIndex int) bool {
+	// Mouse input is shared across all player indices - there's only one
+	// physical mouse regardless of how many local players are configured.
 	if isMouseButton(buttonIndex) {
 		return handleMouseInput(buttonIndex)
 	}
 
-	// Handle keyboard input
-	if handleKeyboardInput(buttonIndex) {
-		return true
-	}
-
-	// Handle gamepad input
-	for gamepadID := range connectedGamepadIDs {
-		if isDirectionButton(buttonIndex) {
-			if handleGamepadDirectionalInput(buttonIndex, gamepadID) {
-				return true
-			}
-		} else {
-			if handleGamepadStandardButtonInput(buttonIndex, gamepadID) {
-				return true
-			}
+	if playerIndex == 0 {
+		// Check virtual buttons (for web platform touch/click input) and
+		// keyboard - both represent the primary local input device, so
+		// they're only ever attributed to player 0.
+		if getVirtualButtonState(buttonIndex) {
+			return true
+		}
+		if handleKeyboardInput(buttonIndex) {
+			return true
 		}
 	}
 
-	return false
+	// Handle gamepad input for this player's assigned gamepad, if any.
+	gamepadID, ok := gamepadForPlayer(playerIndex)
+	if !ok {
+		return false
+	}
+	if isDirectionButton(buttonIndex) {
+		return handleGamepadDirectionalInput(buttonIndex, gamepadID)
+	}
+	return handleGamepadStandardButtonInput(buttonIndex, gamepadID)
 }
 
-// getCachedButtonState returns the cached button state
-func getCachedButtonState(buttonIndex int) bool {
+// getCachedButtonState returns the cached button state for the given local
+// player slot.
+func getCachedButtonState(buttonIndex, playerIndex int) bool {
 	inputCacheMutex.RLock()
 	defer inputCacheMutex.RUnlock()
 
 	if !inputCacheValid {
-		return checkButtonState(buttonIndex)
+		return checkButtonState(buttonIndex, playerIndex)
 	}
 
-	return buttonStates[buttonIndex]
+	return buttonStates[buttonKey{playerIndex, buttonIndex}]
 }
 
-// getCachedButtonStatePrev returns the cached previous button state
-func getCachedButtonStatePrev(buttonIndex int) bool {
+// getCachedButtonStatePrev returns the cached previous button state for the
+// given local player slot.
+func getCachedButtonStatePrev(buttonIndex, playerIndex int) bool {
 	inputCacheMutex.RLock()
 	defer inputCacheMutex.RUnlock()
 
-	return buttonStatesPrev[buttonIndex]
+	return buttonStatesPrev[buttonKey{playerIndex, buttonIndex}]
 }
