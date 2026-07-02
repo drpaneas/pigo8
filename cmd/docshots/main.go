@@ -78,9 +78,11 @@ func runJob(repoRoot string, job CaptureJob, outDir string) error {
 	}
 	defer func() { _ = os.RemoveAll(buildDir) }()
 
-	modulePath := "github.com/drpaneas/pigo8/examples/" + filepath.Base(job.ExampleDir)
-	if err := webbuild.EnsureExampleModule(gameDir, repoRoot, modulePath); err != nil {
-		return fmt.Errorf("ensuring example module: %w", err)
+	if !job.RootModule {
+		modulePath := "github.com/drpaneas/pigo8/examples/" + filepath.Base(job.ExampleDir)
+		if err := webbuild.EnsureExampleModule(gameDir, repoRoot, modulePath); err != nil {
+			return fmt.Errorf("ensuring example module: %w", err)
+		}
 	}
 
 	wasmPath := filepath.Join(buildDir, "game.wasm")

@@ -20,6 +20,11 @@ const (
 	keyArrowUp    = "ArrowUp"
 	keyArrowRight = "ArrowRight"
 	keyArrowDown  = "ArrowDown"
+	keyW          = "KeyW"
+	keyA          = "KeyA"
+	keyS          = "KeyS"
+	keyD          = "KeyD"
+	keyX          = "KeyX"
 )
 
 // arrowKeyCodes maps the key names used in the manifest to the JS keyCode /
@@ -35,6 +40,11 @@ var arrowKeyCodes = map[string]struct {
 	keyArrowUp:    {keyArrowUp, keyArrowUp, 38, 38},
 	keyArrowRight: {keyArrowRight, keyArrowRight, 39, 39},
 	keyArrowDown:  {keyArrowDown, keyArrowDown, 40, 40},
+	keyW:          {keyW, "w", 87, 87},
+	keyA:          {keyA, "a", 65, 65},
+	keyS:          {keyS, "s", 83, 83},
+	keyD:          {keyD, "d", 68, 68},
+	keyX:          {keyX, "x", 88, 88},
 }
 
 // pressKeys dispatches keydown events for the given keys. Returns an error
@@ -88,6 +98,46 @@ func releaseKeys(ctx context.Context, keys []string) error {
 			if err := ups[i].Do(ctx); err != nil {
 				return err
 			}
+		}
+		return nil
+	}))
+}
+
+// canvasSize returns the current CSS pixel width/height of the game's
+// <canvas> element, used to resolve InputStep's fractional wheel
+// coordinates to actual pixel positions.
+func canvasSize(ctx context.Context) (width, height float64, err error) {
+	var dims []float64
+	script := `(() => {
+		const r = document.querySelector('canvas').getBoundingClientRect();
+		return [r.width, r.height];
+	})()`
+	if err := chromedp.Run(ctx, chromedp.Evaluate(script, &dims)); err != nil {
+		return 0, 0, fmt.Errorf("querying canvas size: %w", err)
+	}
+	if len(dims) != 2 {
+		return 0, 0, fmt.Errorf("unexpected canvas size result: %v", dims)
+	}
+	return dims[0], dims[1], nil
+}
+
+// dispatchWheel synthesizes a single mouse wheel event at (x, y). A
+// mouseMoved event is dispatched immediately before it: headless Chrome's
+// CDP mouseWheel dispatch otherwise hangs indefinitely waiting on an input
+// event queue that a wheel event alone never resolves, apparently because
+// it has no prior known pointer position to wheel "at". This was confirmed
+// empirically - dispatching mouseMoved first makes the wheel event resolve
+// immediately every time.
+func dispatchWheel(ctx context.Context, x, y, deltaY float64) error {
+	return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		if err := input.DispatchMouseEvent(input.MouseMoved, x, y).Do(ctx); err != nil {
+			return fmt.Errorf("moving mouse before wheel dispatch: %w", err)
+		}
+		ev := input.DispatchMouseEvent(input.MouseWheel, x, y).
+			WithDeltaY(deltaY).
+			WithPointerType(input.Mouse)
+		if err := ev.Do(ctx); err != nil {
+			return fmt.Errorf("dispatching wheel event: %w", err)
 		}
 		return nil
 	}))
@@ -172,9 +222,20 @@ func captureJob(ctx context.Context, job CaptureJob, pageURL string) ([]image.Im
 	var frames []image.Image
 	elapsed := 0
 
-	// For each input step: press the keys, sample frames throughout the hold
-	// duration (so the GIF actually shows the action happening), then release.
+	// For each input step: either scroll the wheel a number of times, or
+	// hold keys - sampling frames throughout so the GIF actually shows the
+	// action happening.
 	for i, step := range job.Inputs {
+		if step.WheelTicks != 0 {
+			stepFrames, err := runWheelStep(tabCtx, step, job.SampleMs)
+			if err != nil {
+				return nil, fmt.Errorf("wheel input step %d: %w", i, err)
+			}
+			frames = append(frames, stepFrames...)
+			elapsed += step.WheelTicks * job.SampleMs
+			continue
+		}
+
 		if err := pressKeys(tabCtx, step.Keys); err != nil {
 			return nil, fmt.Errorf("pressing keys for input step %d: %w", i, err)
 		}
@@ -230,4 +291,31 @@ func captureJob(ctx context.Context, job CaptureJob, pageURL string) ([]image.Im
 
 func captureFrame(ctx context.Context) (image.Image, error) {
 	return captureCanvasPNG(ctx)
+}
+
+// runWheelStep dispatches step.WheelTicks synthetic wheel events at the
+// canvas point described by step.WheelX/WheelY (fractions of canvas size),
+// sampling a frame after each tick so the resulting GIF shows the zoom
+// happening gradually rather than jumping straight to the end state.
+func runWheelStep(ctx context.Context, step InputStep, sampleMs int) ([]image.Image, error) {
+	width, height, err := canvasSize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	x := step.WheelX * width
+	y := step.WheelY * height
+
+	var frames []image.Image
+	for i := 0; i < step.WheelTicks; i++ {
+		if err := dispatchWheel(ctx, x, y, step.WheelDeltaY); err != nil {
+			return nil, fmt.Errorf("dispatching wheel tick %d: %w", i, err)
+		}
+		frame, err := captureFrame(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("capturing frame after wheel tick %d: %w", i, err)
+		}
+		frames = append(frames, frame)
+		time.Sleep(time.Duration(sampleMs) * time.Millisecond)
+	}
+	return frames, nil
 }
