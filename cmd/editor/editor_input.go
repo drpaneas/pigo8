@@ -30,16 +30,15 @@ func (g *myGame) toggleMapMode() {
 
 		g.mapMode = !g.mapMode
 		if g.mapMode {
-			// When entering map mode, save the current spritesheet first
+			// When entering map mode, push the current spritesheet into
+			// PIGO8's engine so map tiles render with the latest edits.
+			// saveSpritesheet() syncs directly from in-memory data (and
+			// separately best-effort persists to disk) - it deliberately
+			// does not rely on a save-then-reload-from-disk round trip,
+			// which silently no-ops wherever there's no real filesystem
+			// (e.g. WASM in a browser), leaving the engine's copy stale.
 			if err := saveSpritesheet(); err != nil {
 				log.Printf("Error saving spritesheet before entering map mode: %v", err)
-				// Decide if this is a fatal error or if we can proceed
-				// For now, we'll log and continue, but PIGO-8 might not have the latest sprites
-			}
-			// Then, instruct PIGO-8 to reload this spritesheet
-			if err := p8.LoadSpritesheet("spritesheet.json"); err != nil {
-				log.Printf("Error loading spritesheet into PIGO-8: %v", err)
-				// Similar to above, log and continue for now
 			}
 		} else {
 			if err := g.saveMapData(); err != nil {

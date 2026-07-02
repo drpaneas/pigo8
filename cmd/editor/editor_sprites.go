@@ -201,17 +201,11 @@ func initPico8Spritesheet() error {
 		return nil
 	}
 
-	// Create a temporary spritesheet.json file that PIGO8 can load
+	// Create a temporary spritesheet.json file that PIGO8 can load. This
+	// already pushes the full sprite grid into PIGO8's engine directly
+	// (see createTempSpritesheet), so no further per-pixel Sset() sync is
+	// needed here.
 	createTempSpritesheet()
-
-	// Now initialize all sprites with our data
-	forEachSpritePixel(func(row, col, r, c int) {
-		// Calculate the absolute pixel position
-		px := col*8 + c
-		py := row*8 + r
-		// Set the pixel color in PIGO8
-		p8.Sset(px, py, spritesheet[row][col][r][c])
-	})
 
 	return nil
 }
@@ -277,15 +271,26 @@ func createTempSpritesheet() {
 		return
 	}
 
-	// Write to file
-	err = os.WriteFile("spritesheet.json", jsonData, 0644)
-	if err != nil {
-		fmt.Println("Error writing temporary spritesheet file:", err)
-		return
+	// Push the full grid into PIGO8's engine directly from the in-memory
+	// JSON, rather than relying on Sset()'s lazy-load to read it back from
+	// disk later. That round trip silently fails in environments with no
+	// real filesystem (e.g. WASM in a browser): the write below appears to
+	// fail non-fatally, but the file then doesn't exist to read back
+	// either, so the engine would fall back to a minimal built-in default
+	// with no mapping for any sprite ID beyond it - every subsequent
+	// Sset() call from drawing (and Spr() call from placing sprites on the
+	// map) would silently no-op with a "non-existent sprite ID" warning.
+	if err := p8.LoadSpritesheetFromBytes(jsonData); err != nil {
+		fmt.Println("Error loading temporary spritesheet into PIGO8:", err)
 	}
 
-	// The spritesheet.json file will be loaded automatically the next time
-	// a sprite-related function like Spr() or Sset() is called
+	// Best-effort: also persist to disk so native runs get a real
+	// spritesheet.json file. Failure here (e.g. no writable filesystem) is
+	// non-fatal - the engine already has the data via LoadSpritesheetFromBytes
+	// above regardless of whether this succeeds.
+	if err := os.WriteFile("spritesheet.json", jsonData, 0644); err != nil {
+		fmt.Println("Error writing temporary spritesheet file:", err)
+	}
 }
 
 func updateMapSprites(spriteIndex int) {

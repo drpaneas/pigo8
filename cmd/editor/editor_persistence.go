@@ -52,9 +52,11 @@ func loadSpritesheet() error {
 	return nil
 }
 
-// saveSpritesheet saves the current spritesheet to a JSON file
-func saveSpritesheet() error {
-	// Create the spritesheet structure following the PIGO8 format
+// buildSpritesheetJSON constructs the in-memory JSON representation of the
+// current spritesheet (spritesheet[]/spriteFlags[], matching PIGO8's file
+// format). Used both to persist the spritesheet to disk and to push it
+// directly into PIGO8's engine via p8.LoadSpritesheetFromBytes.
+func buildSpritesheetJSON() ([]byte, error) {
 	sheet := spriteSheetData{
 		SpriteSheetColumns: spriteSheetCols,
 		SpriteSheetRows:    spriteSheetRows,
@@ -79,7 +81,34 @@ func saveSpritesheet() error {
 
 	fmt.Printf("Spritesheet saved: %d sprites saved, %d empty sprites skipped\n", savedCount, skippedCount)
 
-	return saveJSONToFile("spritesheet.json", sheet)
+	return json.MarshalIndent(sheet, "", "  ")
+}
+
+// saveSpritesheet pushes the current spritesheet into PIGO8's engine
+// directly from in-memory JSON, then best-effort persists the same bytes to
+// spritesheet.json on disk.
+//
+// The engine sync happens directly from bytes (via p8.LoadSpritesheetFromBytes)
+// rather than by writing to disk and letting PIGO8 read it back later -
+// that round trip silently fails wherever there's no real filesystem (e.g.
+// WASM in a browser): the write below can fail non-fatally, and a later
+// read then finds nothing, leaving the engine's copy stale. The disk write
+// is still attempted, for native runs where callers expect a real
+// spritesheet.json file to exist afterward.
+func saveSpritesheet() error {
+	jsonData, err := buildSpritesheetJSON()
+	if err != nil {
+		return fmt.Errorf("error marshaling spritesheet: %w", err)
+	}
+
+	if err := p8.LoadSpritesheetFromBytes(jsonData); err != nil {
+		log.Printf("Error loading spritesheet into PIGO8: %v", err)
+	}
+
+	if err := os.WriteFile("spritesheet.json", jsonData, 0644); err != nil {
+		return fmt.Errorf("error writing spritesheet.json: %w", err)
+	}
+	return nil
 }
 
 // saveJSONToFile saves any data structure to a JSON file with proper indentation
