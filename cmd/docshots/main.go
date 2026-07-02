@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"image"
@@ -19,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/chromedp/chromedp"
 	"github.com/drpaneas/pigo8/internal/webbuild"
@@ -96,8 +98,15 @@ func runJob(repoRoot string, job CaptureJob, outDir string) error {
 	if err != nil {
 		return fmt.Errorf("starting listener: %w", err)
 	}
-	server := &http.Server{Handler: http.FileServer(http.Dir(buildDir))}
-	go func() { _ = server.Serve(listener) }()
+	server := &http.Server{
+		Handler:           http.FileServer(http.Dir(buildDir)),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintf(os.Stderr, "docshots: http server error: %v\n", err)
+		}
+	}()
 	defer func() { _ = server.Close() }()
 
 	pageURL := fmt.Sprintf("http://%s/index.html", listener.Addr().String())
@@ -116,9 +125,9 @@ func runJob(repoRoot string, job CaptureJob, outDir string) error {
 	}
 
 	switch job.Kind {
-	case "static":
+	case jobKindStatic:
 		return savePNG(bestFrame(frames), filepath.Join(outDir, job.Name+".png"))
-	case "gif":
+	case jobKindGIF:
 		g, err := framesToGIF(frames, job.SampleMs)
 		if err != nil {
 			return fmt.Errorf("assembling gif: %w", err)
@@ -132,25 +141,31 @@ func runJob(repoRoot string, job CaptureJob, outDir string) error {
 func savePNG(img image.Image, path string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating %s: %w", path, err)
 	}
 	defer func() {
 		if closeErr := f.Close(); closeErr != nil && err == nil {
-			err = closeErr
+			err = fmt.Errorf("closing %s: %w", path, closeErr)
 		}
 	}()
-	return png.Encode(f, img)
+	if err := png.Encode(f, img); err != nil {
+		return fmt.Errorf("encoding png to %s: %w", path, err)
+	}
+	return nil
 }
 
 func saveGIF(g *gif.GIF, path string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating %s: %w", path, err)
 	}
 	defer func() {
 		if closeErr := f.Close(); closeErr != nil && err == nil {
-			err = closeErr
+			err = fmt.Errorf("closing %s: %w", path, closeErr)
 		}
 	}()
-	return gif.EncodeAll(f, g)
+	if err := gif.EncodeAll(f, g); err != nil {
+		return fmt.Errorf("encoding gif to %s: %w", path, err)
+	}
+	return nil
 }

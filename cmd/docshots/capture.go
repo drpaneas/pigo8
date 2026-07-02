@@ -38,43 +38,47 @@ var arrowKeyCodes = map[string]struct {
 	keyArrowDown:  {keyArrowDown, keyArrowDown, 40, 40},
 }
 
-// holdKeys dispatches keydown events for the given keys, waits for holdMs,
-// then dispatches the matching keyup events. Unknown key names are skipped.
-func holdKeys(keys []string, holdMs int) chromedp.Action {
-	return chromedp.ActionFunc(func(ctx context.Context) error {
-		var downs []input.DispatchKeyEventParams
-		for _, k := range keys {
-			code, ok := arrowKeyCodes[k]
-			if !ok {
-				return fmt.Errorf("unsupported key %q in manifest input step", k)
-			}
-			downs = append(downs, *input.DispatchKeyEvent(input.KeyDown).
-				WithCode(code.Code).
-				WithKey(code.Key).
-				WithWindowsVirtualKeyCode(code.WindowsVirtual).
-				WithNativeVirtualKeyCode(code.NativeVirtual))
+// pressKeys dispatches keydown events for the given keys. Returns an error
+// for any key name not present in arrowKeyCodes.
+func pressKeys(ctx context.Context, keys []string) error {
+	var downs []input.DispatchKeyEventParams
+	for _, k := range keys {
+		code, ok := arrowKeyCodes[k]
+		if !ok {
+			return fmt.Errorf("unsupported key %q in manifest input step", k)
 		}
-		for i := range downs {
-			if err := downs[i].Do(ctx); err != nil {
-				return err
-			}
+		downs = append(downs, *input.DispatchKeyEvent(input.KeyDown).
+			WithCode(code.Code).
+			WithKey(code.Key).
+			WithWindowsVirtualKeyCode(code.WindowsVirtual).
+			WithNativeVirtualKeyCode(code.NativeVirtual))
+	}
+	for i := range downs {
+		if err := downs[i].Do(ctx); err != nil {
+			return err
 		}
+	}
+	return nil
+}
 
-		time.Sleep(time.Duration(holdMs) * time.Millisecond)
-
-		for _, k := range keys {
-			code := arrowKeyCodes[k]
-			up := input.DispatchKeyEvent(input.KeyUp).
-				WithCode(code.Code).
-				WithKey(code.Key).
-				WithWindowsVirtualKeyCode(code.WindowsVirtual).
-				WithNativeVirtualKeyCode(code.NativeVirtual)
-			if err := up.Do(ctx); err != nil {
-				return err
-			}
+// releaseKeys dispatches keyup events for the given keys. Returns an error
+// for any key name not present in arrowKeyCodes.
+func releaseKeys(ctx context.Context, keys []string) error {
+	for _, k := range keys {
+		code, ok := arrowKeyCodes[k]
+		if !ok {
+			return fmt.Errorf("unsupported key %q in manifest input step", k)
 		}
-		return nil
-	})
+		up := input.DispatchKeyEvent(input.KeyUp).
+			WithCode(code.Code).
+			WithKey(code.Key).
+			WithWindowsVirtualKeyCode(code.WindowsVirtual).
+			WithNativeVirtualKeyCode(code.NativeVirtual)
+		if err := up.Do(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // captureCanvasPNG evaluates JS in the page to grab the current <canvas>
@@ -126,22 +130,43 @@ func captureJob(ctx context.Context, job CaptureJob, pageURL string) ([]image.Im
 
 	var frames []image.Image
 	elapsed := 0
-	inputIdx := 0
 
-	for elapsed < job.CaptureMs {
-		if inputIdx < len(job.Inputs) {
-			step := job.Inputs[inputIdx]
-			if err := chromedp.Run(tabCtx, holdKeys(step.Keys, step.HoldMs)); err != nil {
-				return nil, fmt.Errorf("dispatching input step %d: %w", inputIdx, err)
-			}
-			elapsed += step.HoldMs
-			inputIdx++
-			continue
+	// For each input step: press the keys, sample frames throughout the hold
+	// duration (so the GIF actually shows the action happening), then release.
+	for i, step := range job.Inputs {
+		if err := pressKeys(tabCtx, step.Keys); err != nil {
+			return nil, fmt.Errorf("pressing keys for input step %d: %w", i, err)
 		}
 
+		stepElapsed := 0
+		for stepElapsed < step.HoldMs {
+			frame, err := captureFrame(tabCtx)
+			if err != nil {
+				return nil, fmt.Errorf("capturing frame during input step %d: %w", i, err)
+			}
+			frames = append(frames, frame)
+
+			sleepMs := job.SampleMs
+			if remaining := step.HoldMs - stepElapsed; remaining < sleepMs {
+				sleepMs = remaining
+			}
+			time.Sleep(time.Duration(sleepMs) * time.Millisecond)
+			stepElapsed += sleepMs
+		}
+
+		if err := releaseKeys(tabCtx, step.Keys); err != nil {
+			return nil, fmt.Errorf("releasing keys for input step %d: %w", i, err)
+		}
+		elapsed += step.HoldMs
+	}
+
+	// Continue sampling for any remaining capture window after inputs are done
+	// (covers input-less "static"/"gif" jobs entirely, and any tail time after
+	// the last input step for jobs that have inputs).
+	for elapsed < job.CaptureMs {
 		frame, err := captureFrame(tabCtx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("capturing frame at %dms elapsed: %w", elapsed, err)
 		}
 		frames = append(frames, frame)
 
@@ -149,23 +174,19 @@ func captureJob(ctx context.Context, job CaptureJob, pageURL string) ([]image.Im
 		elapsed += job.SampleMs
 	}
 
-	// Always end with a final captured frame so "static" jobs have output
-	// even if CaptureMs was fully consumed by input steps.
-	frame, err := captureFrame(tabCtx)
-	if err != nil {
-		return nil, err
+	// Guarantee at least one frame even if CaptureMs was 0 or fully consumed
+	// by input steps with no tail sampling time remaining.
+	if len(frames) == 0 {
+		frame, err := captureFrame(tabCtx)
+		if err != nil {
+			return nil, fmt.Errorf("capturing final frame: %w", err)
+		}
+		frames = append(frames, frame)
 	}
-	frames = append(frames, frame)
 
 	return frames, nil
 }
 
 func captureFrame(ctx context.Context) (image.Image, error) {
-	var img image.Image
-	err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		var innerErr error
-		img, innerErr = captureCanvasPNG(ctx)
-		return innerErr
-	}))
-	return img, err
+	return captureCanvasPNG(ctx)
 }

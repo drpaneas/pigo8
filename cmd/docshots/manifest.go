@@ -1,5 +1,11 @@
 package main
 
+// Job kinds accepted for CaptureJob.Kind.
+const (
+	jobKindStatic = "static"
+	jobKindGIF    = "gif"
+)
+
 // InputStep represents holding a set of keys for a duration before releasing them.
 type InputStep struct {
 	Keys   []string // key names, e.g. "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"
@@ -22,87 +28,87 @@ var manifest = []CaptureJob{
 	{
 		Name:       "hello-world",
 		ExampleDir: "examples/hello_world",
-		Kind:       "static",
+		Kind:       jobKindStatic,
 		CaptureMs:  500,
 		SampleMs:   500,
 	},
 	{
 		Name:       "animation",
 		ExampleDir: "examples/animation",
-		Kind:       "gif",
+		Kind:       jobKindGIF,
 		CaptureMs:  3000,
 		SampleMs:   100,
 	},
 	{
 		Name:       "spritesheet",
 		ExampleDir: "examples/spritesheet",
-		Kind:       "static",
+		Kind:       jobKindStatic,
 		CaptureMs:  500,
 		SampleMs:   500,
 	},
 	{
 		Name:       "map",
 		ExampleDir: "examples/map",
-		Kind:       "static",
+		Kind:       jobKindStatic,
 		CaptureMs:  500,
 		SampleMs:   500,
 	},
 	{
 		Name:       "map-layers",
 		ExampleDir: "examples/map_layers",
-		Kind:       "static",
+		Kind:       jobKindStatic,
 		CaptureMs:  500,
 		SampleMs:   500,
 	},
 	{
 		Name:       "camera",
 		ExampleDir: "examples/camera/camera_example2",
-		Kind:       "gif",
+		Kind:       jobKindGIF,
 		CaptureMs:  3000,
 		SampleMs:   150,
 		Inputs: []InputStep{
-			{Keys: []string{"ArrowRight"}, HoldMs: 800},
-			{Keys: []string{"ArrowDown"}, HoldMs: 800},
+			{Keys: []string{keyArrowRight}, HoldMs: 800},
+			{Keys: []string{keyArrowDown}, HoldMs: 800},
 		},
 	},
 	{
 		Name:       "palette",
 		ExampleDir: "examples/palette",
-		Kind:       "gif",
+		Kind:       jobKindGIF,
 		CaptureMs:  3000,
 		SampleMs:   150,
 	},
 	{
 		Name:       "color-collision",
 		ExampleDir: "examples/colorCollision",
-		Kind:       "gif",
+		Kind:       jobKindGIF,
 		CaptureMs:  3000,
 		SampleMs:   150,
 		Inputs: []InputStep{
-			{Keys: []string{"ArrowRight"}, HoldMs: 1000},
-			{Keys: []string{"ArrowUp"}, HoldMs: 1000},
+			{Keys: []string{keyArrowRight}, HoldMs: 1000},
+			{Keys: []string{keyArrowUp}, HoldMs: 1000},
 		},
 	},
 	{
 		Name:       "map-collision",
 		ExampleDir: "examples/gameboy",
-		Kind:       "gif",
+		Kind:       jobKindGIF,
 		CaptureMs:  3000,
 		SampleMs:   150,
 		Inputs: []InputStep{
-			{Keys: []string{"ArrowRight"}, HoldMs: 1500},
+			{Keys: []string{keyArrowRight}, HoldMs: 1500},
 		},
 	},
 	{
 		Name:       "pong",
 		ExampleDir: "examples/pong",
-		Kind:       "gif",
+		Kind:       jobKindGIF,
 		CaptureMs:  3000,
 		SampleMs:   150,
 		Inputs: []InputStep{
-			{Keys: []string{"ArrowUp"}, HoldMs: 600},
-			{Keys: []string{"ArrowDown"}, HoldMs: 1200},
-			{Keys: []string{"ArrowUp"}, HoldMs: 600},
+			{Keys: []string{keyArrowUp}, HoldMs: 600},
+			{Keys: []string{keyArrowDown}, HoldMs: 1200},
+			{Keys: []string{keyArrowUp}, HoldMs: 600},
 		},
 	},
 }
