@@ -278,9 +278,12 @@ func createTempSpritesheet() {
 }
 
 func updateMapSprites(spriteIndex int) {
-	// Scan through the entire map and update any instances of this sprite
-	for y := 0; y < 128; y++ {
-		for x := 0; x < 128; x++ {
+	// Scan through the entire map (editorMapWidth x editorMapHeight, not the
+	// PICO-8-default 128x128) and update any instances of this sprite. Using
+	// the smaller 128x128 here previously left ~84% of the actual 320x320
+	// editor map without a forced redraw when a sprite was edited or pasted.
+	for y := 0; y < editorMapHeight; y++ {
+		for x := 0; x < editorMapWidth; x++ {
 			// Check if this map cell uses the modified sprite
 			if p8.Mget(x, y) == spriteIndex {
 				// Force a redraw of this sprite by setting it to itself
