@@ -60,3 +60,6 @@ docs/**/index.html
 
 # Git worktrees for isolated feature work
 .worktrees
+
+# mdBook build output
+/book
