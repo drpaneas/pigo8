@@ -1,4 +1,4 @@
-package main
+package webbuild
 
 import (
 	"html/template"
@@ -10,8 +10,8 @@ type HTMLTemplateData struct {
 	Title string
 }
 
-// generateHTML creates the index.html file with the gameboy-style UI
-func generateHTML(outputPath, title string) (err error) {
+// GenerateHTML creates the index.html file with the gameboy-style UI
+func GenerateHTML(outputPath, title string) (err error) {
 	tmpl, err := template.New("index").Parse(htmlTemplate)
 	if err != nil {
 		return err

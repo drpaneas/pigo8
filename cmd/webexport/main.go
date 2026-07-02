@@ -10,11 +10,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/drpaneas/pigo8/internal/webbuild"
 )
 
 func main() {
@@ -77,7 +78,7 @@ func main() {
 	// Step 1: Build WASM
 	fmt.Println("Building WebAssembly...")
 	wasmPath := filepath.Join(outputDir, "game.wasm")
-	if err := buildWASM(gameDir, wasmPath); err != nil {
+	if err := webbuild.BuildWASM(gameDir, wasmPath); err != nil {
 		fmt.Printf("Error building WASM: %v\n", err)
 		os.Exit(1)
 	}
@@ -85,7 +86,7 @@ func main() {
 
 	// Step 2: Copy wasm_exec.js
 	fmt.Println("Copying WASM runtime...")
-	if err := copyWASMExec(outputDir); err != nil {
+	if err := webbuild.CopyWASMExec(outputDir); err != nil {
 		fmt.Printf("Error copying wasm_exec.js: %v\n", err)
 		os.Exit(1)
 	}
@@ -94,7 +95,7 @@ func main() {
 	// Step 3: Generate HTML
 	fmt.Println("Generating HTML...")
 	htmlPath := filepath.Join(outputDir, "index.html")
-	if err := generateHTML(htmlPath, title); err != nil {
+	if err := webbuild.GenerateHTML(htmlPath, title); err != nil {
 		fmt.Printf("Error generating HTML: %v\n", err)
 		os.Exit(1)
 	}
@@ -117,106 +118,6 @@ func main() {
 		fmt.Printf("  cd %s && python3 -m http.server %d\n", outputDir, port)
 		fmt.Printf("  Then open http://localhost:%d in your browser\n", port)
 	}
-}
-
-// buildWASM compiles the game to WebAssembly
-func buildWASM(gameDir, outputPath string) error {
-	cmd := exec.Command("go", "build", "-ldflags=-s -w", "-o", outputPath, ".")
-	cmd.Dir = gameDir
-	cmd.Env = buildWASMEnv()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	return cmd.Run()
-}
-
-// buildWASMEnv creates an environment for WASM compilation.
-// It filters out any existing GOOS/GOARCH to avoid duplicate entries,
-// then sets the required values for WebAssembly compilation.
-func buildWASMEnv() []string {
-	env := os.Environ()
-	filtered := make([]string, 0, len(env)+2)
-
-	// Filter out existing GOOS and GOARCH to avoid duplicates
-	for _, e := range env {
-		if !strings.HasPrefix(e, "GOOS=") && !strings.HasPrefix(e, "GOARCH=") {
-			filtered = append(filtered, e)
-		}
-	}
-
-	// Add the required WASM environment variables
-	filtered = append(filtered, "GOOS=js", "GOARCH=wasm")
-	return filtered
-}
-
-// copyWASMExec copies wasm_exec.js from the Go installation
-func copyWASMExec(outputDir string) error {
-	// Find GOROOT using 'go env GOROOT' (more portable than runtime.GOROOT)
-	goroot, err := getGoRoot()
-	if err != nil {
-		return fmt.Errorf("failed to determine GOROOT: %w", err)
-	}
-
-	// Try multiple possible locations as the path has changed between Go versions
-	possiblePaths := []string{
-		filepath.Join(goroot, "lib", "wasm", "wasm_exec.js"),  // Go 1.24+
-		filepath.Join(goroot, "misc", "wasm", "wasm_exec.js"), // Go 1.23 and earlier
-	}
-
-	var wasmExecSrc string
-	for _, path := range possiblePaths {
-		if _, err := os.Stat(path); err == nil {
-			wasmExecSrc = path
-			break
-		}
-	}
-
-	if wasmExecSrc == "" {
-		return fmt.Errorf("wasm_exec.js not found in GOROOT (%s). Tried: %v", goroot, possiblePaths)
-	}
-
-	// Copy file
-	wasmExecDst := filepath.Join(outputDir, "wasm_exec.js")
-	return copyFile(wasmExecSrc, wasmExecDst)
-}
-
-// getGoRoot returns the Go root directory using 'go env GOROOT'.
-// This is more portable than runtime.GOROOT() which was deprecated in Go 1.24.
-func getGoRoot() (string, error) {
-	cmd := exec.Command("go", "env", "GOROOT")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-// copyFile copies a file from src to dst
-func copyFile(src, dst string) (err error) {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// Capture Close error only if no prior error occurred
-		if closeErr := srcFile.Close(); closeErr != nil && err == nil {
-			err = closeErr
-		}
-	}()
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// Capture Close error only if no prior error occurred
-		if closeErr := dstFile.Close(); closeErr != nil && err == nil {
-			err = closeErr
-		}
-	}()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
 }
 
 // serveHTTP starts a simple HTTP server for testing
