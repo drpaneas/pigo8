@@ -53,6 +53,7 @@
 
 - [Resource Embedding](90-advanced/01-resource-embedding.md)
 - [Web Export](90-advanced/02-web-export.md)
+- [Testing Your Game](90-advanced/03-testing.md)
 - [PIGO8 Editor](editor.md)
 - [Cross-Platform Build](crossbuild.md)
 - [Multiplayer Networking](multiplayer_networking.md)
