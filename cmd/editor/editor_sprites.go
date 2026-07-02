@@ -180,14 +180,25 @@ func initSpritesheet() {
 	})
 }
 
+// spritesheetFileReadable reports whether spritesheet.json already exists
+// and can be read. Reading it (rather than os.Stat) is deliberate: on
+// GOOS=js (WASM, e.g. running in a browser), os.Stat returns a generic
+// "not implemented" error rather than a proper ErrNotExist, so
+// os.IsNotExist can't distinguish "missing file" from "real error" there -
+// the editor would otherwise treat every startup in a browser as a fatal
+// error before the game loop even starts. Any read failure (missing,
+// unreadable, or platform quirk) is treated the same way: fall back to
+// creating a fresh default spritesheet, matching the existing resilience
+// pattern already used by loadSpritesheet/initSpritesheet elsewhere in
+// this file.
+func spritesheetFileReadable() bool {
+	_, err := os.ReadFile("spritesheet.json")
+	return err == nil
+}
+
 func initPico8Spritesheet() error {
-	// Check if spritesheet.json already exists
-	if _, err := os.Stat("spritesheet.json"); err == nil {
-		// File exists, no need to create it
+	if spritesheetFileReadable() {
 		return nil
-	} else if !os.IsNotExist(err) {
-		// Some other error occurred
-		return fmt.Errorf("error checking spritesheet.json: %w", err)
 	}
 
 	// Create a temporary spritesheet.json file that PIGO8 can load

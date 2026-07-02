@@ -90,25 +90,16 @@ func (g *myGame) Init() {
 	// Initialize spritesheet (will also load from file if available)
 	initSpritesheet()
 
-	// Try to load map data from map.json
-	hasFirstTryWorked := false
+	// Try to load map data from map.json. If it's missing (or the
+	// environment has no writable filesystem, e.g. running as WASM in a
+	// browser), fall back to an empty in-memory map instead of exiting -
+	// a save failure here shouldn't prevent the editor from starting.
 	if err := g.loadMapData(); err != nil {
 		fmt.Println("No map.json found, starting with empty map")
-		// Everytime you get out of map mode, save the map
-		err := g.saveMapData()
-		if err != nil {
-			fmt.Println("Error saving map:", err)
-			os.Exit(1)
-		}
-		fmt.Println("Map saved to map.json")
-	} else {
-		hasFirstTryWorked = true
-	}
-
-	if !hasFirstTryWorked {
-		if err := g.loadMapData(); err != nil {
-			fmt.Println("Could not create map.json")
-			os.Exit(1)
+		if err := g.saveMapData(); err != nil {
+			fmt.Printf("Warning: could not save initial map.json, continuing with an in-memory, unsaved map: %v\n", err)
+		} else {
+			fmt.Println("Map saved to map.json")
 		}
 	}
 

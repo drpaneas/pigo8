@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"log"
-	"os"
 	"time"
 
 	p8 "github.com/drpaneas/pigo8"
@@ -45,8 +43,9 @@ func (g *myGame) toggleMapMode() {
 			}
 		} else {
 			if err := g.saveMapData(); err != nil {
-				fmt.Println("Error saving map:", err)
-				os.Exit(1)
+				log.Printf("Error saving map (changes not persisted to disk): %v", err)
+				// Log and continue, consistent with the spritesheet save/load
+				// handling above - a failed save shouldn't crash the editor.
 			}
 		}
 	}
