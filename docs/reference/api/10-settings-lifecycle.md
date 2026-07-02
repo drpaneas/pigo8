@@ -14,7 +14,9 @@ Your game struct must implement this interface. See [The Game Loop](../../03-gam
 
 ## `InsertGame(cartridge Cartridge)`
 
-Registers your game implementation with PIGO8. Must be called before `Play()`/`PlayGameWith()`.
+Registers your game implementation with PIGO8. Call this before `Play()`/`PlayGameWith()` -
+skipping it doesn't error, but runs a no-op cartridge with empty `Init`/`Update`/`Draw`
+methods (a blank window), so your game logic never runs.
 
 ## `Play()`
 

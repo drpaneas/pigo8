@@ -3,7 +3,8 @@
 ## `ColorCollision[X, Y Number](x X, y Y, color int) bool`
 
 Reports whether the pixel at `(x, y)` matches `color`. Returns `false` if the coordinates are
-out of screen bounds (0-127) or the color index is invalid.
+out of screen bounds (0 to `GetScreenWidth()-1` / `GetScreenHeight()-1`, 0-127 by default) or the
+color index is invalid.
 
 **Parameters:**
 

@@ -84,6 +84,9 @@ idx := p8.Pget(10, 20) // idx == 8
 
 Draws a line between two points. Mimics PICO-8's `line(x1, y1, x2, y2, color)`.
 
+**Note:** unlike `Rect`, `Circ`, and their filled variants, `Line` does **not** apply the
+current camera offset - coordinates always map directly to screen pixels.
+
 **Parameters:**
 
 | Name | Type | Description |
