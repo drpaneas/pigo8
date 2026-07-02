@@ -96,3 +96,7 @@ func (g *game) Draw() {
 }
 ```
 
+## See Also
+
+- [Camera](../reference/api/07-camera.md)
+

@@ -118,3 +118,7 @@ if int(p8.Time()) % 5 == 0 && g.lastSpawn != int(p8.Time()) {
 p8.T()  // Same as p8.Time()
 ```
 
+## See Also
+
+- [Math](../reference/api/09-math.md)
+

@@ -74,3 +74,7 @@ p8.Pset(10, 10)    // Draws red (uses current color)
 p8.Pset(20, 20, 12) // Draws blue (overrides current color)
 ```
 
+## See Also
+
+- [Screen & Drawing](../reference/api/01-screen-drawing.md)
+

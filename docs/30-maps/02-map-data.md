@@ -118,3 +118,7 @@ func (g *game) Update() {
 }
 ```
 
+## See Also
+
+- [Maps](../reference/api/04-maps.md)
+

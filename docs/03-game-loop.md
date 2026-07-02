@@ -144,3 +144,7 @@ func main() {
 
 Arrow keys move the red square. The game loop makes it responsive.
 
+## See Also
+
+- [Settings & Lifecycle](reference/api/10-settings-lifecycle.md)
+

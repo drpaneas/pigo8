@@ -101,3 +101,7 @@ p8.Palt(8, true)
 p8.Palt()
 ```
 
+## See Also
+
+- [Sprites](../reference/api/03-sprites.md)
+

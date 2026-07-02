@@ -80,3 +80,7 @@ func (g *game) Update() {
 }
 ```
 
+## See Also
+
+- [Input](../reference/api/05-input.md)
+

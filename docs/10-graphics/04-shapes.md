@@ -103,3 +103,7 @@ func (g *game) Draw() {
 }
 ```
 
+## See Also
+
+- [Screen & Drawing](../reference/api/01-screen-drawing.md)
+

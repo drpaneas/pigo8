@@ -99,3 +99,7 @@ Get the number of colors:
 count := p8.GetPaletteSize()  // Returns 16 for default palette
 ```
 
+## See Also
+
+- [Colors & Palette](../reference/api/02-colors-palette.md)
+

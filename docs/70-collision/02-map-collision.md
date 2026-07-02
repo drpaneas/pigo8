@@ -95,3 +95,7 @@ func (g *game) Update() {
 }
 ```
 
+## See Also
+
+- [Collision](../reference/api/08-collision.md)
+

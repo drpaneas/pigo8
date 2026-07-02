@@ -66,3 +66,7 @@ func hitWall(x, y, w, h float64, wallColor int) bool {
 }
 ```
 
+## See Also
+
+- [Collision](../reference/api/08-collision.md)
+

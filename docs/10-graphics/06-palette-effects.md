@@ -122,3 +122,7 @@ func (g *game) Draw() {
 }
 ```
 
+## See Also
+
+- [Colors & Palette](../reference/api/02-colors-palette.md)
+

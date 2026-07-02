@@ -91,3 +91,7 @@ func (g *game) Init() {
 }
 ```
 
+## See Also
+
+- [Sprites](../reference/api/03-sprites.md)
+

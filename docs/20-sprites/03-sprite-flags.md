@@ -118,3 +118,7 @@ func (g *game) Update() {
 }
 ```
 
+## See Also
+
+- [Sprites](../reference/api/03-sprites.md)
+
