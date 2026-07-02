@@ -278,6 +278,36 @@ func loadSpritesheetFromDataInternal(data []byte, updatePixelCache bool) ([]spri
 	return processSprites(sheet, updatePixelCache)
 }
 
+// emptySpriteMappingSentinel marks a sprite ID mapping as "points to
+// whatever the shared transparent placeholder sprite ends up being",
+// rather than a real, already-known index into loadedSprites.
+//
+// It's distinct from the real index 0 deliberately: ensureTransparentSprite
+// may need to prepend a synthetic transparent sprite and shift every
+// *real* index by one to make room for it. If empty-sprite mappings used
+// the literal value 0 for this (as they used to), that shift couldn't tell
+// them apart from "a real sprite that happens to already be at index 0",
+// and would incorrectly shift them too - even though the placeholder they
+// point to is, by construction, always still at index 0 after the shift.
+// This was most visible when every sprite in a grid was empty (e.g. a
+// freshly created, never-drawn-on spritesheet): loadedSprites stayed
+// empty, ensureTransparentSprite inserted the synthetic sprite, and every
+// single sprite ID's mapping got shifted from 0 to 1 - one past the only
+// entry that exists - so every subsequent Sset/Spr call failed with a
+// "non-existent sprite ID" warning immediately after a successful load.
+const emptySpriteMappingSentinel = -1
+
+// resolveEmptySpriteMappings replaces any emptySpriteMappingSentinel value
+// with the confirmed final index of the shared transparent sprite (always
+// 0), once ensureTransparentSprite has run and that index is settled.
+func resolveEmptySpriteMappings(localSpriteIDMapping map[int]int) {
+	for id, index := range localSpriteIDMapping {
+		if index == emptySpriteMappingSentinel {
+			localSpriteIDMapping[id] = 0
+		}
+	}
+}
+
 // processSprites handles the main sprite processing logic
 func processSprites(sheet *spriteSheet, updatePixelCache bool) ([]spriteInfo, error) {
 	var loadedSprites []spriteInfo
@@ -315,7 +345,7 @@ func processSprites(sheet *spriteSheet, updatePixelCache bool) ([]spriteInfo, er
 
 		// Handle empty sprites
 		if isEmptySprite(spriteData) {
-			localSpriteIDMapping[spriteData.ID] = 0
+			localSpriteIDMapping[spriteData.ID] = emptySpriteMappingSentinel
 			emptiesMappedTo0++
 			continue
 		}
@@ -357,10 +387,25 @@ func fillMissingIDs(localSpriteIDMapping map[int]int) {
 		maxSpriteID := spritesheetRows * spritesheetColumns
 		for id := 0; id < maxSpriteID; id++ {
 			if _, exists := localSpriteIDMapping[id]; !exists {
-				// Map missing IDs to sprite 0 (transparent)
-				localSpriteIDMapping[id] = 0
+				// Map missing IDs to the shared transparent placeholder
+				localSpriteIDMapping[id] = emptySpriteMappingSentinel
 			}
 		}
+	}
+}
+
+// shiftRealIndices increments every *real* (already-resolved) index in
+// localSpriteIDMapping by one, to make room for a transparent sprite being
+// prepended to loadedSprites. Sentinel entries (emptySpriteMappingSentinel)
+// are left untouched - they don't yet point at a real index, and are
+// resolved separately once the transparent sprite's final position is
+// settled (see resolveEmptySpriteMappings).
+func shiftRealIndices(localSpriteIDMapping map[int]int) {
+	for id, index := range localSpriteIDMapping {
+		if index == emptySpriteMappingSentinel {
+			continue
+		}
+		localSpriteIDMapping[id] = index + 1
 	}
 }
 
@@ -375,10 +420,7 @@ func ensureTransparentSprite(loadedSprites []spriteInfo, localSpriteIDMapping ma
 		transparentSprite := createTransparentSprite()
 		// Insert at the beginning
 		loadedSprites = append([]spriteInfo{transparentSprite}, loadedSprites...)
-		// Update all mappings to account for the shift
-		for id, index := range localSpriteIDMapping {
-			localSpriteIDMapping[id] = index + 1
-		}
+		shiftRealIndices(localSpriteIDMapping)
 		// Map sprite 0 to the new transparent sprite
 		localSpriteIDMapping[0] = 0
 		uniqueLoaded++
@@ -387,14 +429,13 @@ func ensureTransparentSprite(loadedSprites []spriteInfo, localSpriteIDMapping ma
 		transparentSprite := createTransparentSprite()
 		// Insert at the beginning
 		loadedSprites = append([]spriteInfo{transparentSprite}, loadedSprites...)
-		// Update all mappings to account for the shift
-		for id, index := range localSpriteIDMapping {
-			localSpriteIDMapping[id] = index + 1
-		}
+		shiftRealIndices(localSpriteIDMapping)
 		// Map sprite 0 to the new transparent sprite
 		localSpriteIDMapping[0] = 0
 		uniqueLoaded++
 	}
+
+	resolveEmptySpriteMappings(localSpriteIDMapping)
 
 	return loadedSprites, localSpriteIDMapping, uniqueLoaded
 }
@@ -538,9 +579,29 @@ func LoadSpritesheet(filename string) error {
 		return fmt.Errorf("error reading spritesheet file %s: %w", filename, err)
 	}
 
+	if err := LoadSpritesheetFromBytes(data); err != nil {
+		return fmt.Errorf("error processing spritesheet data from %s: %w", filename, err)
+	}
+	return nil
+}
+
+// LoadSpritesheetFromBytes loads sprite data from an in-memory JSON byte
+// slice - the same format LoadSpritesheet reads from a file - and updates
+// the engine's active spritesheet (currentSprites).
+//
+// This exists for callers that build or already hold spritesheet JSON in
+// memory (e.g. an editor tool) and need to push it into the engine without
+// a round trip through a real filesystem. That round trip silently fails
+// on platforms without one, such as GOOS=js (WASM) running in a browser,
+// where os.ReadFile/os.WriteFile have no persistent backing store: writing
+// the file appears to succeed or fail non-fatally, but a later read (e.g.
+// via LoadSpritesheet, or Sset's lazy-load of a nil spritesheet) then finds
+// nothing, silently falling back to a minimal built-in default instead of
+// the caller's actual data.
+func LoadSpritesheetFromBytes(data []byte) error {
 	newSprites, err := loadSpritesheetFromData(data)
 	if err != nil {
-		return fmt.Errorf("error processing spritesheet data from %s: %w", filename, err)
+		return fmt.Errorf("error processing spritesheet data: %w", err)
 	}
 
 	// Update the package-level currentSprites variable (defined in engine.go)
@@ -552,6 +613,6 @@ func LoadSpritesheet(filename string) error {
 	// Invalidate sprite ID index so it gets rebuilt with the new sprites
 	InvalidateSpriteIDIndex()
 
-	log.Printf("Successfully loaded and updated spritesheet from %s. %d sprites processed.", filename, len(newSprites))
+	log.Printf("Successfully loaded and updated spritesheet from in-memory data. %d sprites processed.", len(newSprites))
 	return nil
 }

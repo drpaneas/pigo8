@@ -1,6 +1,7 @@
 package pigo8
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 
@@ -610,4 +611,65 @@ func TestLoadSpritesheet_FileNotFound(t *testing.T) {
 	//
 	// However, with our new resource loading system, we always fall back to default
 	// embedded resources, so this test is no longer applicable.
+}
+
+// TestLoadSpritesheetFromBytes_AllEmptyGridMapsEverySpriteID reproduces a bug
+// found while diagnosing why the PIGO8 editor's browser demo silently failed
+// to render any sprite drawn or placed on the map: loading a spritesheet
+// where every declared sprite in the grid is empty (all-zero pixels, as is
+// the case for a completely fresh, never-drawn-on spritesheet) left every
+// sprite ID mapped to an out-of-bounds index, so Sset/Spr treated every ID
+// as "non-existent" even immediately after a successful load.
+//
+// Root cause: processSprites maps "empty" sprite IDs directly to index 0
+// (the eventual shared transparent placeholder). When nothing else gets
+// loaded (every declared sprite is empty), ensureTransparentSprite inserts
+// a synthetic transparent sprite at position 0 and unconditionally shifts
+// *all* existing mapping values by +1 to make room for it - including the
+// "points to the shared placeholder" mappings that were already correctly
+// 0, which should stay 0 since the placeholder itself is at index 0.
+func TestLoadSpritesheetFromBytes_AllEmptyGridMapsEverySpriteID(t *testing.T) {
+	const cols, rows = 2, 2 // small 4-sprite grid, all left blank
+
+	sheet := spriteSheet{
+		SpriteSheetColumns: cols,
+		SpriteSheetRows:    rows,
+		SpriteSheetWidth:   cols * 8,
+		SpriteSheetHeight:  rows * 8,
+	}
+	for id := 0; id < cols*rows; id++ {
+		pixels := make([][]int, 8)
+		for r := range pixels {
+			pixels[r] = make([]int, 8)
+		}
+		sheet.Sprites = append(sheet.Sprites, spriteData{
+			ID:     id,
+			X:      (id % cols) * 8,
+			Y:      (id / cols) * 8,
+			Width:  8,
+			Height: 8,
+			Used:   true,
+			Flags:  FlagsData{Bitfield: 0, Individual: make([]bool, 8)},
+			Pixels: pixels,
+		})
+	}
+
+	jsonData, err := json.Marshal(sheet)
+	require.NoError(t, err)
+
+	require.NoError(t, LoadSpritesheetFromBytes(jsonData))
+
+	spriteIDMappingMu.RLock()
+	defer spriteIDMappingMu.RUnlock()
+
+	currentSpritesMu.RLock()
+	defer currentSpritesMu.RUnlock()
+
+	for id := 0; id < cols*rows; id++ {
+		index, ok := SpriteIDMapping[id]
+		assert.True(t, ok, "sprite ID %d should have a mapping entry", id)
+		assert.True(t, index >= 0 && index < len(currentSprites),
+			"sprite ID %d maps to out-of-bounds index %d (currentSprites has %d entries)",
+			id, index, len(currentSprites))
+	}
 }
