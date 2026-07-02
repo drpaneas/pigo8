@@ -4,7 +4,7 @@ The PIGO8 editor is an _extremely minimal_ tool that allows you to create and ed
 
 ## Installation
 
-To install the PIGO8 editor, you need to have Go installed on your system. If you haven't installed Go yet, please refer to the [Installing Go](installing_go.md) guide.
+To install the PIGO8 editor, you need to have Go installed on your system. If you haven't installed Go yet, please refer to the [Installation](01-installation.md) guide.
 
 Once Go is installed, you can install the PIGO8 editor with the following command:
 
@@ -110,4 +110,4 @@ editor -w 640 -h 480
 
 ## Next Steps
 
-After creating your sprites and maps with the editor, you can use them in your PIGO8 games. See the [Resource Embedding](embedding.md) guide for details on how to include these resources in your game.
+After creating your sprites and maps with the editor, you can use them in your PIGO8 games. See the [Resource Embedding](90-advanced/01-resource-embedding.md) guide for details on how to include these resources in your game.
