@@ -3,6 +3,8 @@ module github.com/drpaneas/pigo8
 go 1.26
 
 require (
+	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc
+	github.com/chromedp/chromedp v0.15.1
 	github.com/hajimehoshi/ebiten/v2 v2.9.9
 	github.com/spf13/afero v1.15.0
 	github.com/stretchr/testify v1.11.1
@@ -10,8 +12,6 @@ require (
 )
 
 require (
-	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc // indirect
-	github.com/chromedp/chromedp v0.15.1 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/ebitengine/gomobile v0.0.0-20250923094054-ea854a63cce1 // indirect
