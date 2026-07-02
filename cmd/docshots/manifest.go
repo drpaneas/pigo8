@@ -61,32 +61,38 @@ var manifest = []CaptureJob{
 		SampleMs:   500,
 	},
 	{
+		// camera_example2 is a static illustration (empty Update(), no input
+		// handling) that always draws the same two-camera-offset scene, so a
+		// GIF would just repeat identical frames - a static screenshot is the
+		// honest representation of what this example actually shows.
 		Name:       "camera",
 		ExampleDir: "examples/camera/camera_example2",
-		Kind:       jobKindGIF,
-		CaptureMs:  3000,
-		SampleMs:   150,
-		Inputs: []InputStep{
-			{Keys: []string{keyArrowRight}, HoldMs: 800},
-			{Keys: []string{keyArrowDown}, HoldMs: 800},
-		},
+		Kind:       jobKindStatic,
+		CaptureMs:  500,
+		SampleMs:   500,
 	},
 	{
+		// palette's example is also static (empty Update()), so like camera
+		// above, a still screenshot is more honest than a repeating GIF.
 		Name:       "palette",
 		ExampleDir: "examples/palette",
-		Kind:       jobKindGIF,
-		CaptureMs:  3000,
-		SampleMs:   150,
+		Kind:       jobKindStatic,
+		CaptureMs:  500,
+		SampleMs:   500,
 	},
 	{
+		// Player starts at (10,10) moving 1px/frame (~30px/sec at 30 TPS).
+		// Move right then down toward the labyrinth (drawn starting at
+		// x=30,y=30) rather than up, which would immediately leave the
+		// visible 128x128 canvas.
 		Name:       "color-collision",
 		ExampleDir: "examples/colorCollision",
 		Kind:       jobKindGIF,
 		CaptureMs:  3000,
 		SampleMs:   150,
 		Inputs: []InputStep{
-			{Keys: []string{keyArrowRight}, HoldMs: 1000},
-			{Keys: []string{keyArrowUp}, HoldMs: 1000},
+			{Keys: []string{keyArrowRight}, HoldMs: 700},
+			{Keys: []string{keyArrowDown}, HoldMs: 700},
 		},
 	},
 	{
