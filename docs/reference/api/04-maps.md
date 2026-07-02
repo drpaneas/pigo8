@@ -20,6 +20,10 @@ p8.Map(0, 0, 0, 0, 32, 32)        // draw a 32x32 tile region
 p8.Map(0, 0, 0, 0, 32, 32, 1)     // only draw tiles whose sprite has flag 0 set
 ```
 
+`Map()` caches its composited tile image across frames for performance; see
+[`SetMapCacheEnabled`](10-settings-lifecycle.md#setmapcacheenabledenabled-bool) if you need to
+disable that for a map that changes every frame.
+
 **See also:** [Drawing Maps](../../30-maps/01-drawing-maps.md)
 
 ## `Mget[C, R Number](column C, row R) int`

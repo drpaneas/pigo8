@@ -34,7 +34,7 @@ type Settings struct {
 	Multiplayer  bool              // Enable multiplayer networking (Default: false).
 	Fullscreen   bool              // Start the game in fullscreen mode (Default: false).
 	ColorSpace   ebiten.ColorSpace // Color space for rendering (Default: ColorSpaceDefault).
-	DisableHiDPI bool              // Disable HiDPI scaling (Default: false).
+	DisableHiDPI bool              // Disable HiDPI scaling (Default: true; see NewSettings).
 
 	// Cache Settings
 	SpriteImageCacheSize int  // Maximum cached transparent sprite images (Default: 256).
@@ -436,6 +436,9 @@ func PlayGameWith(settings *Settings) {
 
 	// Enable frame stats if configured
 	EnableFrameStats(cfg.EnableFrameStats)
+
+	// Enable/disable map tile caching as configured
+	SetMapCacheEnabled(cfg.MapCacheEnabled)
 
 	// Try to load custom palette from palette.hex if it exists
 	loadPaletteFromHexFile()

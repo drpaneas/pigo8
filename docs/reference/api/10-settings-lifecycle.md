@@ -63,4 +63,17 @@ p8.InsertGame(&game{})
 p8.PlayGameWith(settings)
 ```
 
+## `SetMapCacheEnabled(enabled bool)`
+
+Enables or disables the composited-image cache used by `Map()`. Mirrors `Settings.MapCacheEnabled`
+at startup, but can also be called at runtime - useful for a map that's regenerated every frame
+(e.g. procedural generation), where a stale cache would otherwise show outdated tiles.
+
+**Example:**
+```go
+p8.SetMapCacheEnabled(false) // always redraw the map fresh, e.g. before a procedural rebuild
+p8.Map()
+p8.SetMapCacheEnabled(true) // re-enable for normal scrolling performance
+```
+
 **See also:** [Settings](../../04-settings.md), [The Game Loop](../../03-game-loop.md)

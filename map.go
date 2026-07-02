@@ -97,6 +97,13 @@ var (
 	mapCacheRenderedScreenWidth  int
 	mapCacheRenderedScreenHeight int
 
+	// mapCacheEnabled mirrors Settings.MapCacheEnabled (set via
+	// SetMapCacheEnabled during PlayGameWith). When false, drawMapRegion
+	// rebuilds its composited tile image from scratch every call instead of
+	// reusing it across frames - useful for maps that change every frame,
+	// where a stale cache would otherwise show outdated tiles.
+	mapCacheEnabled = true
+
 	// Memory monitoring (Preserved)
 	lastMemoryUsage uint64
 	memoryMutex     sync.Mutex
@@ -471,6 +478,32 @@ func parseMapArgs(args []any) (sx, sy, wTiles, hTiles, layers int) {
 	return sx, sy, wTiles, hTiles, layers
 }
 
+// SetMapCacheEnabled enables or disables the composited-image cache used by
+// Map()/drawMapRegion. Mirrors Settings.MapCacheEnabled; also callable at
+// runtime for games that need to toggle it (e.g. right before drawing a map
+// that's regenerated every frame, where a stale cache would show outdated
+// tiles).
+func SetMapCacheEnabled(enabled bool) {
+	mapCacheEnabled = enabled
+}
+
+// isMapCacheValid reports whether the existing mapCacheImage can be reused
+// as-is for a draw call with the given parameters, rather than being
+// rebuilt. Always false when mapCacheEnabled is false, so every call forces
+// a fresh rebuild instead of reusing a (potentially stale) prior frame.
+func isMapCacheValid(mapX, mapY, wTiles, hTiles, layers, screenWidth, screenHeight int) bool {
+	return mapCacheEnabled &&
+		mapCacheIsValid &&
+		mapCacheImage != nil &&
+		mapCacheDrawnForWorldTileX == mapX &&
+		mapCacheDrawnForWorldTileY == mapY &&
+		mapCacheWidthInTiles == wTiles &&
+		mapCacheHeightInTiles == hTiles &&
+		mapCacheRenderedLayers == layers &&
+		mapCacheRenderedScreenWidth == screenWidth &&
+		mapCacheRenderedScreenHeight == screenHeight
+}
+
 // drawMapRegion draws a region of the map to the screen using a cache
 func drawMapRegion(mapX, mapY, sx, sy, wTiles, hTiles, layers int) {
 	if wTiles <= 0 || hTiles <= 0 {
@@ -478,16 +511,7 @@ func drawMapRegion(mapX, mapY, sx, sy, wTiles, hTiles, layers int) {
 	}
 
 	// Check cache validity
-	// ScreenWidth and ScreenHeight are from the pigo8 package, assumed to be globally accessible updated values.
-	cacheIsCurrentlyValid := mapCacheIsValid &&
-		mapCacheImage != nil &&
-		mapCacheDrawnForWorldTileX == mapX &&
-		mapCacheDrawnForWorldTileY == mapY &&
-		mapCacheWidthInTiles == wTiles &&
-		mapCacheHeightInTiles == hTiles &&
-		mapCacheRenderedLayers == layers &&
-		mapCacheRenderedScreenWidth == GetScreenWidth() &&
-		mapCacheRenderedScreenHeight == GetScreenHeight()
+	cacheIsCurrentlyValid := isMapCacheValid(mapX, mapY, wTiles, hTiles, layers, GetScreenWidth(), GetScreenHeight())
 
 	if !cacheIsCurrentlyValid {
 		// Invalidate and rebuild cache

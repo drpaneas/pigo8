@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -193,6 +194,97 @@ func TestMgetWithMapFile(t *testing.T) {
 	// Mget should respect the dimensions of the loaded map data if map.json dictated smaller dimensions.
 	// However, our current initializeStreamingMapSystem prioritizes map.json dimensions for worldMapStream.
 	assert.Equal(t, 0, Mget(20, 20), "Mget(20, 20) should be 0 as it's outside the 16x16 map loaded from file")
+}
+
+// resetMapCacheState snapshots and restores the map-cache-related package
+// state so tests can freely mutate it without leaking into other tests.
+func resetMapCacheState(t *testing.T) {
+	t.Helper()
+	origEnabled := mapCacheEnabled
+	origValid := mapCacheIsValid
+	origImage := mapCacheImage
+	origX := mapCacheDrawnForWorldTileX
+	origY := mapCacheDrawnForWorldTileY
+	origW := mapCacheWidthInTiles
+	origH := mapCacheHeightInTiles
+	origLayers := mapCacheRenderedLayers
+	origScreenW := mapCacheRenderedScreenWidth
+	origScreenH := mapCacheRenderedScreenHeight
+	t.Cleanup(func() {
+		mapCacheEnabled = origEnabled
+		mapCacheIsValid = origValid
+		mapCacheImage = origImage
+		mapCacheDrawnForWorldTileX = origX
+		mapCacheDrawnForWorldTileY = origY
+		mapCacheWidthInTiles = origW
+		mapCacheHeightInTiles = origH
+		mapCacheRenderedLayers = origLayers
+		mapCacheRenderedScreenWidth = origScreenW
+		mapCacheRenderedScreenHeight = origScreenH
+	})
+}
+
+func TestSetMapCacheEnabled(t *testing.T) {
+	resetMapCacheState(t)
+
+	SetMapCacheEnabled(false)
+	assert.False(t, mapCacheEnabled)
+
+	SetMapCacheEnabled(true)
+	assert.True(t, mapCacheEnabled)
+}
+
+func TestIsMapCacheValid(t *testing.T) {
+	resetMapCacheState(t)
+
+	// A cache that exactly matches every parameter is only considered valid
+	// when caching is enabled and every dimension/position/layer matches.
+	setValidCache := func() {
+		mapCacheEnabled = true
+		mapCacheIsValid = true
+		mapCacheImage = ebiten.NewImage(8, 8)
+		mapCacheDrawnForWorldTileX = 1
+		mapCacheDrawnForWorldTileY = 2
+		mapCacheWidthInTiles = 3
+		mapCacheHeightInTiles = 4
+		mapCacheRenderedLayers = 5
+		mapCacheRenderedScreenWidth = 128
+		mapCacheRenderedScreenHeight = 128
+	}
+
+	t.Run("matching parameters with caching enabled is valid", func(t *testing.T) {
+		setValidCache()
+		assert.True(t, isMapCacheValid(1, 2, 3, 4, 5, 128, 128))
+	})
+
+	t.Run("disabling caching forces invalid regardless of matching parameters", func(t *testing.T) {
+		setValidCache()
+		mapCacheEnabled = false
+		assert.False(t, isMapCacheValid(1, 2, 3, 4, 5, 128, 128),
+			"MapCacheEnabled=false must force a rebuild every call, not reuse a stale cache")
+	})
+
+	t.Run("mismatched map position invalidates the cache", func(t *testing.T) {
+		setValidCache()
+		assert.False(t, isMapCacheValid(99, 2, 3, 4, 5, 128, 128))
+	})
+
+	t.Run("mismatched screen size invalidates the cache", func(t *testing.T) {
+		setValidCache()
+		assert.False(t, isMapCacheValid(1, 2, 3, 4, 5, 256, 256))
+	})
+
+	t.Run("no image yet is invalid", func(t *testing.T) {
+		setValidCache()
+		mapCacheImage = nil
+		assert.False(t, isMapCacheValid(1, 2, 3, 4, 5, 128, 128))
+	})
+
+	t.Run("mapCacheIsValid false is invalid even if everything else matches", func(t *testing.T) {
+		setValidCache()
+		mapCacheIsValid = false
+		assert.False(t, isMapCacheValid(1, 2, 3, 4, 5, 128, 128))
+	})
 }
 
 func TestMgetReturnsZeroWhenStreamingInitializerFails(t *testing.T) {
