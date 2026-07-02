@@ -17,6 +17,12 @@ import (
 // EnsureExampleModule.
 const pigo8ModulePath = "github.com/drpaneas/pigo8"
 
+// ensureCompleteMarker is written into gameDir once EnsureExampleModule has
+// fully completed (init + replace directive + tidy) for that directory. See
+// EnsureExampleModule's doc comment for why this is used instead of
+// inferring completion from go.mod or go.sum existing.
+const ensureCompleteMarker = ".pigo8-example-module-ready"
+
 // BuildWASM compiles the Go program in gameDir to a WebAssembly binary at outputPath.
 func BuildWASM(gameDir, outputPath string) error {
 	cmd := exec.Command("go", "build", "-ldflags=-s -w", "-o", outputPath, ".")
@@ -104,20 +110,75 @@ func copyFile(src, dst string) (err error) {
 
 // EnsureExampleModule makes sure gameDir has its own go.mod pointing at the
 // local pigo8 checkout via a replace directive, matching how CI builds each
-// example (examples' go.mod/go.sum are gitignored, not committed).
+// example. Most examples' go.mod/go.sum are gitignored and generated fresh
+// by this function; a few (the camera_example* directories) commit a real
+// go.mod instead, which this function must leave alone rather than fail on.
 //
 // gameDir and repoRoot must both be absolute paths, since filepath.Rel
 // requires consistently based paths to compute a correct relative path.
 //
-// Completion is signaled by the presence of gameDir/go.sum rather than
-// go.mod: go.mod is created by the first step (go mod init), so treating it
-// as "already set up" would let a partial failure (e.g. go mod tidy failing
-// after go.mod exists but before go.sum is written) look like success on any
-// retry. go.sum is only ever produced by a successful go mod tidy, so its
-// presence means every earlier step also completed successfully.
+// Completion is signaled by an explicit marker file
+// (gameDir/.pigo8-example-module-ready), not by go.mod or go.sum existing:
+//   - go.mod alone isn't a reliable signal because it's created by the very
+//     first step (go mod init); treating its mere existence as "done" would
+//     let a partial failure (e.g. go mod tidy failing afterward) look like
+//     success on a retry.
+//   - go.sum isn't reliable either: go mod tidy only writes one when the
+//     module has at least one non-replaced external dependency, so a target
+//     with none (everything resolved through local replace directives)
+//     would never produce a go.sum, and this function would never converge.
+//
+// If go.mod already exists (either a real committed one, or left over from
+// an earlier partial failure) but the marker is missing, this function
+// skips `go mod init` (which would fail on an existing go.mod), but still
+// checks whether the replace directive is present and appends it if not -
+// covering a partial failure that happened between `go mod init` and
+// writing the replace directive - before (re-)running `go mod tidy`, which
+// is always safe to repeat. This lets a genuinely partial prior run
+// self-heal on retry instead of just failing loudly, while leaving
+// already-correct committed go.mod files untouched beyond confirming
+// they're tidy.
 func EnsureExampleModule(gameDir, repoRoot, modulePath string) error {
-	if _, err := os.Stat(filepath.Join(gameDir, "go.sum")); err == nil {
+	markerPath := filepath.Join(gameDir, ensureCompleteMarker)
+	if _, err := os.Stat(markerPath); err == nil {
 		return nil // already fully set up
+	}
+
+	goModPath := filepath.Join(gameDir, "go.mod")
+	if _, err := os.Stat(goModPath); err != nil {
+		initCmd := exec.Command("go", "mod", "init", modulePath)
+		initCmd.Dir = gameDir
+		initCmd.Stdout = os.Stdout
+		initCmd.Stderr = os.Stderr
+		if err := initCmd.Run(); err != nil {
+			return fmt.Errorf("go mod init in %s: %w", gameDir, err)
+		}
+	}
+
+	if err := ensureReplaceDirective(gameDir, repoRoot, goModPath); err != nil {
+		return err
+	}
+
+	if err := runGoModTidy(gameDir); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(markerPath, []byte("marks that EnsureExampleModule completed successfully for this directory; safe to delete, it will be regenerated\n"), 0o644); err != nil {
+		return fmt.Errorf("writing completion marker %s: %w", markerPath, err)
+	}
+	return nil
+}
+
+// ensureReplaceDirective appends a `replace` directive pointing
+// pigo8ModulePath at the local repoRoot checkout to the go.mod at goModPath,
+// unless one is already present.
+func ensureReplaceDirective(gameDir, repoRoot, goModPath string) error {
+	existing, err := os.ReadFile(goModPath)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", goModPath, err)
+	}
+	if strings.Contains(string(existing), "replace "+pigo8ModulePath) {
+		return nil // already present (real committed go.mod, or a prior successful run)
 	}
 
 	relPath, err := filepath.Rel(gameDir, repoRoot)
@@ -125,15 +186,6 @@ func EnsureExampleModule(gameDir, repoRoot, modulePath string) error {
 		return fmt.Errorf("computing relative path from %s to %s: %w", gameDir, repoRoot, err)
 	}
 
-	initCmd := exec.Command("go", "mod", "init", modulePath)
-	initCmd.Dir = gameDir
-	initCmd.Stdout = os.Stdout
-	initCmd.Stderr = os.Stderr
-	if err := initCmd.Run(); err != nil {
-		return fmt.Errorf("go mod init in %s: %w", gameDir, err)
-	}
-
-	goModPath := filepath.Join(gameDir, "go.mod")
 	f, err := os.OpenFile(goModPath, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("opening %s to append replace directive: %w", goModPath, err)
@@ -145,7 +197,11 @@ func EnsureExampleModule(gameDir, repoRoot, modulePath string) error {
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("closing %s: %w", goModPath, err)
 	}
+	return nil
+}
 
+// runGoModTidy runs `go mod tidy` in gameDir. Safe to call repeatedly.
+func runGoModTidy(gameDir string) error {
 	tidyCmd := exec.Command("go", "mod", "tidy")
 	tidyCmd.Dir = gameDir
 	tidyCmd.Stdout = os.Stdout

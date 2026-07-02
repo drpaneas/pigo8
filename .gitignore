@@ -36,6 +36,10 @@ go.work.sum
 
 examples/*/*.mod
 examples/*/*.sum
+
+# Completion marker written by internal/webbuild.EnsureExampleModule,
+# including for examples with a real committed go.mod (e.g. camera_example*)
+**/.pigo8-example-module-ready
 cmd/embedgen/embedgen
 cmd/editor/editor
 cmd/webexport/webexport
