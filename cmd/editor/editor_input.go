@@ -313,33 +313,54 @@ func (g *myGame) handleCopyPaste() {
 	}
 }
 
+// spriteNavigationCandidate computes the sprite index reached by moving
+// dRow/dCol grid steps from currentSprite, or returns currentSprite
+// unchanged if that move would leave the spritesheet grid or land on sprite
+// 0 (reserved - see Init - and never selectable, matching
+// handleSpriteSelection's mouse-click behavior).
+func spriteNavigationCandidate(currentSprite, dRow, dCol int) int {
+	currentRow := currentSprite / spriteSheetCols
+	currentCol := currentSprite % spriteSheetCols
+
+	newRow := currentRow + dRow
+	newCol := currentCol + dCol
+	if newRow < 0 || newRow >= spriteSheetRows || newCol < 0 || newCol >= spriteSheetCols {
+		return currentSprite
+	}
+
+	candidate := newRow*spriteSheetCols + newCol
+	if candidate == 0 {
+		return currentSprite
+	}
+	return candidate
+}
+
 func (g *myGame) handleKeyboardNavigation() {
 	now := time.Now().UnixNano() / int64(time.Millisecond)
 	if now-g.lastWheelTime <= 150 { // 150ms debounce for keyboard navigation
 		return
 	}
 
-	currentRow := g.currentSprite / spriteSheetCols
-	currentCol := g.currentSprite % spriteSheetCols
-	moved := false
-
+	var dRow, dCol int
 	switch {
-	case p8.Btnp(p8.LEFT) && currentCol > 0:
-		g.currentSprite--
-		moved = true
-	case p8.Btnp(p8.RIGHT) && currentCol < spriteSheetCols-1:
-		g.currentSprite++
-		moved = true
-	case p8.Btnp(p8.UP) && currentRow > 0:
-		g.currentSprite -= spriteSheetCols
-		moved = true
-	case p8.Btnp(p8.DOWN) && currentRow < spriteSheetRows-1:
-		g.currentSprite += spriteSheetCols
-		moved = true
+	case p8.Btnp(p8.LEFT):
+		dCol = -1
+	case p8.Btnp(p8.RIGHT):
+		dCol = 1
+	case p8.Btnp(p8.UP):
+		dRow = -1
+	case p8.Btnp(p8.DOWN):
+		dRow = 1
+	default:
+		return
 	}
 
-	if moved {
-		g.lastWheelTime = now
-		g.updateDrawingCanvas()
+	candidate := spriteNavigationCandidate(g.currentSprite, dRow, dCol)
+	if candidate == g.currentSprite {
+		return
 	}
+
+	g.currentSprite = candidate
+	g.lastWheelTime = now
+	g.updateDrawingCanvas()
 }
