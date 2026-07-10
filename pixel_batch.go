@@ -1,7 +1,6 @@
 package pigo8
 
 import (
-	"image"
 	"image/color"
 	"sync"
 
@@ -312,27 +311,4 @@ func (p *MultiTierBufferPool) Stats() BufferPoolStats {
 	p.statsMu.RLock()
 	defer p.statsMu.RUnlock()
 	return p.stats
-}
-
-// Rectangle pool for sub-image operations.
-
-var rectPool = sync.Pool{
-	New: func() interface{} {
-		return &image.Rectangle{}
-	},
-}
-
-// GetRect gets a rectangle from the pool
-func GetRect(x0, y0, x1, y1 int) *image.Rectangle {
-	r := rectPool.Get().(*image.Rectangle)
-	r.Min.X = x0
-	r.Min.Y = y0
-	r.Max.X = x1
-	r.Max.Y = y1
-	return r
-}
-
-// PutRect returns a rectangle to the pool
-func PutRect(r *image.Rectangle) {
-	rectPool.Put(r)
 }

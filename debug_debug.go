@@ -17,11 +17,6 @@ func debugSpriteNotFound(spriteID int, x, y float64) {
 	}
 }
 
-// debugEnabled returns the actual debug state
-func debugEnabled() bool {
-	return isDebugEnabled()
-}
-
 // debugLog performs conditional debug logging
 func debugLog(format string, args ...interface{}) {
 	if isDebugEnabled() {

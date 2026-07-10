@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"sync"
+	"sync/atomic"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2" // Re-add text/v2
@@ -85,6 +86,12 @@ var (
 	// reusableDrawOpts in sprite_render.go.
 	reusablePrintFace     text.GoTextFace
 	reusablePrintDrawOpts text.DrawOptions
+
+	// paletteVersion increments every time the palette changes (SetPalette,
+	// SetPaletteColor, Pal, Palt). Code that needs a thread-safe snapshot of
+	// palette state (e.g. collision detection running against a captured
+	// version) can compare against this instead of racing the live palette.
+	paletteVersion atomic.Int64
 
 	// These variables hold the internal state for the cursor used by Print.
 	// They were moved from main.go.
@@ -640,6 +647,14 @@ func resetDrawPaletteMapInternal() {
 	for i := 0; i < len(drawPaletteMap); i++ {
 		drawPaletteMap[i] = i
 	}
+}
+
+// NotifyPaletteChanged bumps paletteVersion. Called internally by
+// SetPalette, SetPaletteColor, Pal, and Palt whenever palette state
+// mutates, so other code can detect a stale palette snapshot without
+// racing the live palette data.
+func NotifyPaletteChanged() {
+	paletteVersion.Add(1)
 }
 
 // Pal mimics PICO-8's pal(c0, c1, p) function.
