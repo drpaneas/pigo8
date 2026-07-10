@@ -86,6 +86,12 @@ func TestMgetAndMset(t *testing.T) {
 	// The "Map cell creation and update" sub-test is removed as it relied on the sparse
 	// nature of the old map (currentMap.Cells). With a dense map, Mset always updates
 	// an existing cell's value, and the concept of "adding" a cell is not applicable.
+
+	t.Run("MapSize reports the loaded world dimensions", func(t *testing.T) {
+		w, h := MapSize()
+		assert.Equal(t, defaultPico8MapWidth, w, "MapSize width should match the loaded world width")
+		assert.Equal(t, defaultPico8MapHeight, h, "MapSize height should match the loaded world height")
+	})
 }
 
 // TestMgetWithMapFile tests Mget with a real map file
@@ -307,4 +313,26 @@ func TestMgetReturnsZeroWhenStreamingInitializerFails(t *testing.T) {
 	if got := Mget(0, 0); got != 0 {
 		t.Fatalf("expected zero tile when initialization fails, got %d", got)
 	}
+}
+
+func TestMapSizeReturnsZeroWhenStreamingInitializerFails(t *testing.T) {
+	streamingInitMutex.Lock()
+	streamingSystemInitialized = false
+	worldMapStream = nil
+	activeTileBufferInstance = nil
+	mapCacheIsValid = false
+	streamingInitErr = nil
+	streamingInitMutex.Unlock()
+
+	originalStreamingInitializer := streamingInitializer
+	streamingInitializer = func() error {
+		return errors.New("boom")
+	}
+	defer func() {
+		streamingInitializer = originalStreamingInitializer
+	}()
+
+	w, h := MapSize()
+	assert.Equal(t, 0, w, "expected zero width when initialization fails")
+	assert.Equal(t, 0, h, "expected zero height when initialization fails")
 }

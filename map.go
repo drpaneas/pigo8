@@ -678,6 +678,26 @@ func loadRegionIntoActiveBuffer(targetWorldX, targetWorldY int) error {
 	return nil
 }
 
+// MapSize returns the current world map's dimensions in tiles, as loaded
+// from map.json (or the streaming system's default size if no map.json
+// was found). Callers that iterate map coordinates - e.g. to bulk-sync
+// tiles via Mset - should clamp their loops to this size to avoid
+// hitting the "out of world bounds" rejection Mset logs for every
+// coordinate outside it.
+func MapSize() (width, height int) {
+	if err := ensureStreamingSystemInitialized(); err != nil {
+		log.Printf("MapSize: streaming system unavailable: %v", err)
+		return 0, 0
+	}
+
+	worldMapMutex.RLock()
+	defer worldMapMutex.RUnlock()
+	if worldMapStream == nil {
+		return 0, 0
+	}
+	return worldMapStream.WorldWidthInTiles, worldMapStream.WorldHeightInTiles
+}
+
 // Mget returns the sprite number at the specified map coordinates.
 // This mimics PICO-8's mget(column, row) function.
 func Mget[C Number, R Number](column C, row R) int {

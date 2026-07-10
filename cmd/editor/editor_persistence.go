@@ -281,13 +281,28 @@ func (g *myGame) saveState() error {
 	return nil
 }
 
-// syncMapDataToPigo8 updates PICO-8's internal map memory to match g.mapData
-// using the editor's full map dimensions.
+// syncMapDataToPigo8 updates PICO-8's internal map memory to match g.mapData.
+//
+// g.mapData is a fixed editorMapWidth x editorMapHeight (320x320) buffer
+// used so the editor can grow into, but the loaded project's actual world
+// map (from map.json) is almost always smaller than that - e.g. 100x56.
+// Mset silently rejects (and logs) any coordinate outside the world's real
+// bounds, so this loop is clamped to p8.MapSize() rather than the editor's
+// full buffer size: without the clamp, every undo/redo (which calls this
+// via loadState) would spam thousands of "out of world bounds" log lines
+// for cells that will never be part of the loaded map anyway.
 func (g *myGame) syncMapDataToPigo8() {
+	worldWidth, worldHeight := p8.MapSize()
+	if worldWidth <= 0 || worldHeight <= 0 {
+		worldWidth, worldHeight = editorMapWidth, editorMapHeight
+	}
+	worldWidth = min(worldWidth, editorMapWidth)
+	worldHeight = min(worldHeight, editorMapHeight)
+
 	nonZeroTiles := 0
 
-	for y := 0; y < editorMapHeight; y++ {
-		for x := 0; x < editorMapWidth; x++ {
+	for y := 0; y < worldHeight; y++ {
+		for x := 0; x < worldWidth; x++ {
 			spriteID := g.mapData[y][x]
 			if spriteID < 0 {
 				spriteID = 0
@@ -299,7 +314,7 @@ func (g *myGame) syncMapDataToPigo8() {
 		}
 	}
 
-	log.Printf("Synced full map to PIGO8 using Mset. Non-zero tiles: %d", nonZeroTiles)
+	log.Printf("Synced map to PIGO8 using Mset (%dx%d world). Non-zero tiles: %d", worldWidth, worldHeight, nonZeroTiles)
 }
 
 // loadState loads a state from the virtual filesystem
