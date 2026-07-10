@@ -77,6 +77,15 @@ var (
 	// PICO-8 font is typically 6px high.
 	defaultFontSize = 6.0
 
+	// reusablePrintFace and reusablePrintDrawOpts avoid a pair of heap
+	// allocations on every single Print() call (one *GoTextFace, one
+	// *DrawOptions). Both fields never change between calls (same source,
+	// same size), and Draw() runs on a single goroutine in Ebiten, so a
+	// package-level value reused across calls is safe - same pattern as
+	// reusableDrawOpts in sprite_render.go.
+	reusablePrintFace     text.GoTextFace
+	reusablePrintDrawOpts text.DrawOptions
+
 	// These variables hold the internal state for the cursor used by Print.
 	// They were moved from main.go.
 	cursorX     int
@@ -137,6 +146,11 @@ func init() {
 		log.Fatalf("Failed to create font face source from pico-8.ttf: %v", err)
 	}
 	pico8FaceSource = s
+
+	reusablePrintFace = text.GoTextFace{
+		Source: pico8FaceSource,
+		Size:   defaultFontSize,
+	}
 }
 
 // buildColorToIndexMap creates a map for O(1) color to index lookups
@@ -525,7 +539,13 @@ func Cursor(args ...int) {
 //	endX, endY := Print("4 DONE")    // Draws "4 DONE" at (20, 26) in light gray, cursor moves to (20, 32).
 //	_, _ = Print(true)              // Draws "true" at current cursor with current color.
 func Print(s any, args ...int) (int, int) {
-	str := fmt.Sprintf("%v", s)
+	// Fast path: avoid fmt.Sprintf's reflection-based formatting and its
+	// allocation when the caller already passed a string (the common case
+	// for score/HUD text printed every frame).
+	str, ok := s.(string)
+	if !ok {
+		str = fmt.Sprintf("%v", s)
+	}
 
 	// Check if screen is ready
 	if currentScreen == nil {
@@ -574,13 +594,12 @@ func Print(s any, args ...int) (int, int) {
 	drawX, drawY := int(fx), int(fy)
 
 	// --- Prepare for Drawing ---
-	face := &text.GoTextFace{
-		Source: pico8FaceSource,
-		Size:   defaultFontSize,
-	}
-	op := &text.DrawOptions{}
-	op.GeoM.Translate(float64(drawX), float64(drawY))
-	op.ColorScale.ScaleWithColor(pico8Palette[col])
+	// Reuse package-level face/options instead of allocating a new pair on
+	// every call (see reusablePrintFace/reusablePrintDrawOpts docs above).
+	reusablePrintDrawOpts.GeoM.Reset()
+	reusablePrintDrawOpts.ColorScale.Reset()
+	reusablePrintDrawOpts.GeoM.Translate(float64(drawX), float64(drawY))
+	reusablePrintDrawOpts.ColorScale.ScaleWithColor(pico8Palette[col])
 
 	// --- Approximate Measurement for Return Value ---
 	advance := float64(len([]rune(str))) * CharWidthApproximation
@@ -588,7 +607,7 @@ func Print(s any, args ...int) (int, int) {
 	endY := posY + int(defaultFontSize)
 
 	// --- Draw ---
-	text.Draw(currentScreen, str, face, op)
+	text.Draw(currentScreen, str, &reusablePrintFace, &reusablePrintDrawOpts)
 
 	// Mark shadow buffer dirty since we drew text directly to GPU
 	MarkShadowBufferDirtyFromSprite()
@@ -977,24 +996,30 @@ func clearShadowBuffer() {
 	}
 }
 
-// fillShadowBuffer fills the CPU shadow buffer with a color
+// fillShadowBuffer fills the CPU shadow buffer with a color.
+//
+// PERFORMANCE: Cls() calls this every frame, so it's a hot path. Writing one
+// byte at a time (the previous implementation) cannot be vectorized by the
+// compiler because the 4-byte RGBA pattern isn't a single repeated value.
+// Instead, seed one pixel and repeatedly double it with copy(), which the Go
+// runtime lowers to memmove - a handful of large, hardware-accelerated
+// copies instead of len(shadowBuffer) individual byte stores.
 func fillShadowBuffer(clr color.Color) {
 	if len(shadowBuffer) == 0 || !shadowBufferValid {
 		return
 	}
 
 	r, g, b, a := clr.RGBA()
-	rByte := uint8(r >> 8)
-	gByte := uint8(g >> 8)
-	bByte := uint8(b >> 8)
-	aByte := uint8(a >> 8)
+	shadowBuffer[0] = uint8(r >> 8)
+	shadowBuffer[1] = uint8(g >> 8)
+	shadowBuffer[2] = uint8(b >> 8)
+	shadowBuffer[3] = uint8(a >> 8)
 
-	// Fill all pixels with the color
-	for i := 0; i < len(shadowBuffer); i += 4 {
-		shadowBuffer[i] = rByte
-		shadowBuffer[i+1] = gByte
-		shadowBuffer[i+2] = bByte
-		shadowBuffer[i+3] = aByte
+	// Exponentially double the filled region: after n doublings, [0, 4*2^n)
+	// holds the pattern. Each copy is as large as the previous plus the
+	// filled region, so the whole buffer fills in O(log n) copies.
+	for filled := 4; filled < len(shadowBuffer); filled *= 2 {
+		copy(shadowBuffer[filled:], shadowBuffer[:filled])
 	}
 }
 

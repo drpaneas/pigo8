@@ -54,6 +54,71 @@ func TestCameraAcceptsMixedNumericTypes(t *testing.T) {
 	assert.Equal(t, 20.5, cameraY)
 }
 
+func TestCameraLerpMovesTowardTarget(t *testing.T) {
+	resetCameraState(t)
+	cameraX, cameraY = 0, 0
+
+	CameraLerp(100, 0, 0.5)
+
+	assert.Equal(t, 50.0, cameraX, "should move halfway toward the target with factor 0.5")
+	assert.Equal(t, 0.0, cameraY)
+}
+
+func TestCameraLerpConvergesOverMultipleCalls(t *testing.T) {
+	resetCameraState(t)
+	cameraX, cameraY = 0, 0
+
+	for i := 0; i < 100; i++ {
+		CameraLerp(64, 32, 0.1)
+	}
+
+	assert.InDelta(t, 64.0, cameraX, 0.01, "should converge to the target after enough calls")
+	assert.InDelta(t, 32.0, cameraY, 0.01)
+}
+
+func TestCameraLerpFactorOneSnapsImmediately(t *testing.T) {
+	resetCameraState(t)
+	cameraX, cameraY = 10, 10
+
+	CameraLerp(64, 32, 1.0)
+
+	assert.Equal(t, 64.0, cameraX)
+	assert.Equal(t, 32.0, cameraY)
+}
+
+func TestCameraLerpFactorAboveOneIsClampedToOne(t *testing.T) {
+	resetCameraState(t)
+	cameraX, cameraY = 10, 10
+
+	CameraLerp(64, 32, 5.0)
+
+	assert.Equal(t, 64.0, cameraX, "factor above 1 should clamp to an immediate snap, not overshoot")
+	assert.Equal(t, 32.0, cameraY)
+}
+
+func TestCameraLerpZeroOrNegativeFactorIsNoOp(t *testing.T) {
+	resetCameraState(t)
+	cameraX, cameraY = 10, 20
+
+	CameraLerp(64, 32, 0)
+	assert.Equal(t, 10.0, cameraX)
+	assert.Equal(t, 20.0, cameraY)
+
+	CameraLerp(64, 32, -1)
+	assert.Equal(t, 10.0, cameraX)
+	assert.Equal(t, 20.0, cameraY)
+}
+
+func TestCameraLerpAcceptsMixedNumericTypes(t *testing.T) {
+	resetCameraState(t)
+	cameraX, cameraY = 0, 0
+
+	CameraLerp(int32(100), float32(50), 1.0)
+
+	assert.Equal(t, 100.0, cameraX)
+	assert.Equal(t, 50.0, cameraY)
+}
+
 func TestApplyCameraOffset(t *testing.T) {
 	resetCameraState(t)
 
