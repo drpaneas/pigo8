@@ -87,7 +87,7 @@ jobs:
           # loop above which sets up a throwaway go.mod per example first.
           go run ./cmd/webexport -game ./cmd/editor -o ./book/editor -title "PIGO8 Editor"
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ./book
 
